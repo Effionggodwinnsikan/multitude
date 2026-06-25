@@ -1,0 +1,19 @@
+{
+  "name": "church-member-care-system",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Church Member Care & Attendance Management System",
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace api\" \"npm run dev --workspace client\"",
+    "build": "npm run build --workspace client",
+    "start": "npm run start --workspace api",
+    "seed": "npm run seed --workspace api"
+  },
+  "workspaces": [
+    "api",
+    "client"
+  ],
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
