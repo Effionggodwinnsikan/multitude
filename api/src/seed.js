@@ -4,6 +4,7 @@ import { getOne, initDb, query } from './db.js';
 
 const permissions = {
   'Super Admin': ['*'],
+  'Sub Admin': ['members:read', 'members:create', 'attendance:read', 'attendance:create', 'followups:read', 'homecells:read', 'reports:read'],
   Pastor: ['members:read', 'attendance:read', 'followups:read', 'homecells:read', 'reports:read'],
   'Church Administrator': ['settings:update', 'members:read', 'members:create', 'attendance:read', 'attendance:create', 'followups:read', 'homecells:read', 'homecells:create', 'reports:read'],
   'Follow-up Team Leader': ['members:read', 'followups:read', 'attendance:read'],
@@ -38,7 +39,11 @@ export async function seedIfEmpty() {
   }
 
   const memberCount = await getOne('SELECT COUNT(*) as count FROM members');
-  if (Number(memberCount?.count || 0) > 0) return;
+  if (Number(memberCount?.count || 0) > 0) {
+    await completeDemoBirthdays();
+    await completeDemoOccasions();
+    return;
+  }
 
   const cells = [
     ['Covenant Cell', 'Ikeja', 'Mrs Ada Okafor', 'Plot 12 Unity Close', 'Wednesday', '18:00'],
@@ -56,23 +61,23 @@ export async function seedIfEmpty() {
   }
 
   const members = [
-    ['MEM-00001', 'Chinedu', 'Nwosu', 'Male', 'Worker', 'Ikeja', cellIds.Ikeja, -5],
-    ['MEM-00002', 'Amina', 'Lawal', 'Female', 'First Timer', 'Yaba', null, -2],
-    ['MEM-00003', 'Tolu', 'Adeyemi', 'Female', 'Visitor', 'Lekki', cellIds.Lekki, -40],
-    ['MEM-00004', 'Samuel', 'Etim', 'Male', 'Full Member', 'Ikeja', cellIds.Ikeja, -75],
-    ['MEM-00005', 'Blessing', 'Uche', 'Female', 'Returning Member', 'Ajah', null, -100],
-    ['MEM-00006', 'Daniel', 'Okoro', 'Male', 'Minister', 'Yaba', cellIds.Yaba, -9]
+    ['MEM-00001', 'Chinedu', 'Nwosu', 'Male', 'Worker', 'Ikeja', cellIds.Ikeja, -5, '1991-06-28'],
+    ['MEM-00002', 'Amina', 'Lawal', 'Female', 'First Timer', 'Yaba', null, -2, '1998-07-03'],
+    ['MEM-00003', 'Tolu', 'Adeyemi', 'Female', 'Visitor', 'Lekki', cellIds.Lekki, -40, '1995-07-12'],
+    ['MEM-00004', 'Samuel', 'Etim', 'Male', 'Full Member', 'Ikeja', cellIds.Ikeja, -75, '1988-08-18'],
+    ['MEM-00005', 'Blessing', 'Uche', 'Female', 'Returning Member', 'Ajah', null, -100, '1993-06-30'],
+    ['MEM-00006', 'Daniel', 'Okoro', 'Male', 'Minister', 'Yaba', cellIds.Yaba, -9, '1985-09-05']
   ];
 
-  for (const [memberId, first, last, gender, category, area, cellId, lastSeenOffset] of members) {
+  for (const [memberId, first, last, gender, category, area, cellId, lastSeenOffset, dateOfBirth] of members) {
     const id = uuid();
     await query(
-      `INSERT INTO members (id, member_id, first_name, last_name, gender, marital_status, occupation, phone, whatsapp,
+      `INSERT INTO members (id, member_id, first_name, last_name, gender, date_of_birth, marital_status, occupation, phone, whatsapp,
         email, membership_category, date_first_attended, branch, department, home_cell_id, state, city, local_government,
         area, street_address, landmark)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
       [
-        id, memberId, first, last, gender, 'Single', 'Professional', `+23480${Math.floor(Math.random() * 100000000)}`,
+        id, memberId, first, last, gender, dateOfBirth, 'Single', 'Professional', `+23480${Math.floor(Math.random() * 100000000)}`,
         `+23481${Math.floor(Math.random() * 100000000)}`, `${first.toLowerCase()}@example.com`, category,
         dateOffset(lastSeenOffset - 21), 'Main Branch', 'Protocol', cellId, 'Lagos', 'Lagos', 'Lagos Mainland',
         area, `${Math.floor(Math.random() * 50) + 1} ${area} Road`, 'Near community hall'
@@ -88,10 +93,53 @@ export async function seedIfEmpty() {
     'INSERT INTO followup_groups (id, name, rule_area, leader_name, leader_phone) VALUES ($1,$2,$3,$4,$5), ($6,$7,$8,$9,$10)',
     [uuid(), 'Follow-up Team A', 'Ikeja', 'Sister Mary', '+2348011111111', uuid(), 'Follow-up Team B', 'Yaba', 'Brother John', '+2348022222222']
   );
+  await completeDemoOccasions();
 }
 
 function dateOffset(days) {
   return new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+}
+
+async function completeDemoBirthdays() {
+  const birthdays = [
+    ['MEM-00001', '1991-06-28'],
+    ['MEM-00002', '1998-07-03'],
+    ['MEM-00003', '1995-07-12'],
+    ['MEM-00004', '1988-08-18'],
+    ['MEM-00005', '1993-06-30'],
+    ['MEM-00006', '1985-09-05']
+  ];
+  for (const [memberId, dateOfBirth] of birthdays) {
+    await query(
+      "UPDATE members SET date_of_birth = $1 WHERE member_id = $2 AND COALESCE(date_of_birth, '') = ''",
+      [dateOfBirth, memberId]
+    );
+  }
+}
+
+async function completeDemoOccasions() {
+  const occasions = [
+    ['MEM-00001', 'Membership Anniversary', '2021-07-05'],
+    ['MEM-00002', 'Baptism Anniversary', '2024-07-09'],
+    ['MEM-00003', 'Worker Anniversary', '2023-07-15'],
+    ['MEM-00004', 'Wedding Anniversary', '2017-08-01'],
+    ['MEM-00005', 'Ordination Anniversary', '2020-07-20']
+  ];
+
+  for (const [memberCode, occasionType, occasionDate] of occasions) {
+    const member = await getOne('SELECT id FROM members WHERE member_id = $1', [memberCode]);
+    if (!member) continue;
+    const exists = await getOne(
+      'SELECT id FROM anniversaries WHERE member_id = $1 AND occasion_type = $2',
+      [member.id, occasionType]
+    );
+    if (!exists) {
+      await query(
+        'INSERT INTO anniversaries (member_id, occasion_type, occasion_date) VALUES ($1, $2, $3)',
+        [member.id, occasionType, occasionDate]
+      );
+    }
+  }
 }
 
 if (process.argv[1]?.endsWith('seed.js')) {

@@ -45,14 +45,119 @@ export async function createMember(data) {
 }
 
 export async function getMember(id) {
-  const member = await getOne('SELECT * FROM members WHERE id = $1', [id]);
+  const member = await getOne(`
+    SELECT members.*, home_cells.cell_name, home_cells.meeting_day, home_cells.meeting_time, home_cells.leader_name
+    FROM members LEFT JOIN home_cells ON home_cells.id = members.home_cell_id
+    WHERE members.id = $1
+  `, [id]);
   if (!member) return null;
   const attendance = await query('SELECT * FROM attendance WHERE member_id = $1 ORDER BY attendance_date DESC', [id]);
   const followups = await query('SELECT * FROM followups WHERE member_id = $1 ORDER BY created_at DESC', [id]);
-  return { ...member, attendance, followups };
+  const feedback = await query('SELECT * FROM followup_feedback WHERE member_id = $1 ORDER BY created_at DESC', [id]);
+  const notes = await query('SELECT * FROM member_notes WHERE member_id = $1 ORDER BY created_at DESC', [id]);
+  const anniversaries = await query('SELECT * FROM anniversaries WHERE member_id = $1 ORDER BY occasion_date DESC', [id]);
+  return { ...member, attendance, followups, feedback, notes, anniversaries };
 }
 
-export async function searchMembers(search = '') {
+export async function searchMembers(search = '', filters = {}) {
+  const like = `%${search.toLowerCase()}%`;
+  const rows = await query(
+    `SELECT members.*, home_cells.cell_name,
+       MAX(attendance.attendance_date) as last_attendance_date,
+       COUNT(attendance.id) as attendance_count
+     FROM members
+     LEFT JOIN home_cells ON home_cells.id = members.home_cell_id
+     LEFT JOIN attendance ON attendance.member_id = members.id AND attendance.status = 'Present'
+     WHERE COALESCE(members.deleted_at, '') = ''
+       AND (
+        lower(first_name || ' ' || last_name) LIKE $1
+        OR lower(phone) LIKE $1
+        OR lower(COALESCE(whatsapp, '')) LIKE $1
+        OR lower(COALESCE(members.area, '')) LIKE $1
+        OR lower(COALESCE(home_cells.cell_name, '')) LIKE $1
+        OR lower(COALESCE(membership_category, '')) LIKE $1
+        OR lower(members.member_id) LIKE $1
+       )
+     GROUP BY members.id
+     ORDER BY members.created_at DESC`,
+    [like]
+  );
+  return rows.filter(member => {
+    if (filters.category && member.membership_category !== filters.category) return false;
+    if (filters.area && String(member.area || '').toLowerCase() !== String(filters.area).toLowerCase()) return false;
+    if (filters.homeCell && String(member.cell_name || 'Unassigned').toLowerCase() !== String(filters.homeCell).toLowerCase()) return false;
+    if (filters.status && attendanceStatus(member.last_attendance_date) !== filters.status) return false;
+    if (filters.memberId && member.member_id !== filters.memberId) return false;
+    return true;
+  }).map(member => ({
+    ...member,
+    attendance_status: attendanceStatus(member.last_attendance_date),
+    membership_status: member.archived ? 'Archived' : (member.membership_status || 'Active')
+  }));
+}
+
+export async function updateMember(id, data) {
+  await query(
+    `UPDATE members SET first_name=$1, middle_name=$2, last_name=$3, gender=$4, date_of_birth=$5,
+      marital_status=$6, occupation=$7, phone=$8, alt_phone=$9, whatsapp=$10, email=$11,
+      membership_category=$12, branch=$13, department=$14, home_cell_id=$15, state=$16, city=$17,
+      local_government=$18, area=$19, street_address=$20, landmark=$21, membership_status=$22
+     WHERE id=$23`,
+    [
+      data.firstName, data.middleName || '', data.lastName, data.gender, data.dateOfBirth,
+      data.maritalStatus, data.occupation, data.phone, data.altPhone, data.whatsapp, data.email,
+      data.membershipCategory, data.branch, data.department, data.homeCellId || null, data.state,
+      data.city, data.localGovernment, data.area, data.streetAddress, data.landmark,
+      data.membershipStatus || 'Active', id
+    ]
+  );
+  return getMember(id);
+}
+
+export async function archiveMember(id) {
+  await query("UPDATE members SET archived = $1, archived_at = $2, membership_status = 'Archived' WHERE id = $3", [true, new Date().toISOString(), id]);
+  return getMember(id);
+}
+
+export async function deleteMember(id, reason, deletedBy) {
+  const member = await getMember(id);
+  if (!member) return null;
+  await query(
+    'INSERT INTO deletion_history (member_id, member_name, reason, deleted_by, snapshot) VALUES ($1,$2,$3,$4,$5)',
+    [member.member_id, `${member.first_name} ${member.last_name}`, reason, deletedBy, JSON.stringify(member)]
+  );
+  await query("UPDATE members SET deleted_at = $1, archived = $2, membership_status = 'Deleted' WHERE id = $3", [new Date().toISOString(), true, id]);
+  return member;
+}
+
+export async function addMemberNote(id, noteType, body, createdBy) {
+  await query(
+    'INSERT INTO member_notes (member_id, note_type, body, created_by) VALUES ($1,$2,$3,$4)',
+    [id, noteType, body, createdBy]
+  );
+  return getMember(id);
+}
+
+export async function transferMemberHomeCell(memberId, homeCellId, transferredBy, reason = '') {
+  await query('UPDATE members SET home_cell_id = $1 WHERE id = $2', [homeCellId, memberId]);
+  await query(
+    'INSERT INTO member_home_cells (member_id, home_cell_id, transferred_by, reason) VALUES ($1,$2,$3,$4)',
+    [memberId, homeCellId, transferredBy, reason]
+  );
+  return getMember(memberId);
+}
+
+function attendanceStatus(lastAttendanceDate) {
+  if (!lastAttendanceDate) return 'Never Attended';
+  const days = Math.floor((Date.now() - new Date(lastAttendanceDate).getTime()) / 86400000);
+  if (days <= 7) return 'Present Recently';
+  if (days < 30) return 'Absent Last Sunday';
+  if (days < 60) return 'Absent 30 Days';
+  if (days < 90) return 'Absent 60 Days';
+  return 'Absent 90+ Days';
+}
+
+export async function legacySearchMembers(search = '') {
   const like = `%${search.toLowerCase()}%`;
   return query(
     `SELECT members.*, home_cells.cell_name

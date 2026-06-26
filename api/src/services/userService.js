@@ -1,0 +1,111 @@
+import bcrypt from 'bcryptjs';
+import { v4 as uuid } from 'uuid';
+import { getOne, query } from '../db.js';
+
+export const manageablePermissions = [
+  'settings:update',
+  'members:read',
+  'members:create',
+  'attendance:read',
+  'attendance:create',
+  'followups:read',
+  'homecells:read',
+  'homecells:create',
+  'reports:read',
+  'audit:read'
+];
+
+export async function listRoles() {
+  const roles = await query('SELECT id, name, permissions FROM roles ORDER BY name');
+  return roles.map(role => ({ ...role, permissions: parsePermissions(role.permissions) }));
+}
+
+export async function createRole({ name, permissions = [] }) {
+  const id = uuid();
+  await query(
+    'INSERT INTO roles (id, name, permissions) VALUES ($1, $2, $3)',
+    [id, name, JSON.stringify(cleanPermissions(permissions))]
+  );
+  return getRole(id);
+}
+
+export async function updateRole(id, { name, permissions = [] }) {
+  const existing = await getRole(id);
+  if (!existing) return null;
+  if (existing.name === 'Super Admin') throw new Error('Super Admin role cannot be changed');
+  await query(
+    'UPDATE roles SET name=$1, permissions=$2 WHERE id=$3',
+    [name, JSON.stringify(cleanPermissions(permissions)), id]
+  );
+  return getRole(id);
+}
+
+export async function getRole(id) {
+  const role = await getOne('SELECT id, name, permissions FROM roles WHERE id = $1', [id]);
+  return role ? { ...role, permissions: parsePermissions(role.permissions) } : null;
+}
+
+export async function listUsers() {
+  return query(`
+    SELECT users.id, users.full_name, users.email, users.active, users.created_at,
+      roles.id as role_id, roles.name as role_name
+    FROM users
+    LEFT JOIN roles ON roles.id = users.role_id
+    ORDER BY users.created_at DESC
+  `);
+}
+
+export async function createUser({ fullName, email, password, roleId, active = true }) {
+  const role = await getRole(roleId);
+  if (!role) throw new Error('Selected role does not exist');
+  if (role.name === 'Super Admin') throw new Error('Create another Super Admin from the database console only');
+  const existing = await getOne('SELECT id FROM users WHERE lower(email) = $1', [String(email).toLowerCase()]);
+  if (existing) throw new Error('A user with this email already exists');
+  const id = uuid();
+  await query(
+    'INSERT INTO users (id, full_name, email, password_hash, role_id, active) VALUES ($1, $2, $3, $4, $5, $6)',
+    [id, fullName, String(email).toLowerCase(), await bcrypt.hash(password, 10), roleId, Boolean(active)]
+  );
+  return getUser(id);
+}
+
+export async function updateUserRole(userId, roleId) {
+  const role = await getRole(roleId);
+  if (!role) throw new Error('Selected role does not exist');
+  if (role.name === 'Super Admin') throw new Error('Super Admin role cannot be assigned here');
+  await query('UPDATE users SET role_id=$1 WHERE id=$2', [roleId, userId]);
+  return getUser(userId);
+}
+
+export async function updateUserStatus(userId, active) {
+  await query('UPDATE users SET active=$1 WHERE id=$2', [Boolean(active), userId]);
+  return getUser(userId);
+}
+
+export async function resetUserPassword(userId, password) {
+  await query('UPDATE users SET password_hash=$1 WHERE id=$2', [await bcrypt.hash(password, 10), userId]);
+  return getUser(userId);
+}
+
+export async function getUser(id) {
+  return getOne(`
+    SELECT users.id, users.full_name, users.email, users.active, users.created_at,
+      roles.id as role_id, roles.name as role_name
+    FROM users
+    LEFT JOIN roles ON roles.id = users.role_id
+    WHERE users.id = $1
+  `, [id]);
+}
+
+function cleanPermissions(permissions) {
+  return [...new Set(permissions)].filter(permission => manageablePermissions.includes(permission));
+}
+
+function parsePermissions(value) {
+  if (Array.isArray(value)) return value;
+  try {
+    return JSON.parse(value || '[]');
+  } catch {
+    return [];
+  }
+}

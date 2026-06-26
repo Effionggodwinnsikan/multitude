@@ -13,7 +13,7 @@ export async function login(req, res) {
     [email]
   );
 
-  if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+  if (!user || !user.active || !(await bcrypt.compare(password, user.password_hash))) {
     return res.status(401).json({ message: 'Invalid email or password' });
   }
 
@@ -53,6 +53,11 @@ export function requirePermission(permission) {
     if (req.user?.permissions?.includes('*') || req.user?.permissions?.includes(permission)) return next();
     res.status(403).json({ message: 'Permission denied' });
   };
+}
+
+export function requireSuperAdmin(req, res, next) {
+  if (req.user?.role === 'Super Admin' || req.user?.permissions?.includes('*')) return next();
+  res.status(403).json({ message: 'Super Admin access required' });
 }
 
 export async function audit(req, action, entity, entityId, metadata = {}) {

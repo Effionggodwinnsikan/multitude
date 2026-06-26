@@ -67,10 +67,20 @@ async function migratePostgres() {
     CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
     ${schema('postgres')}
   `);
+  await pgPool.query('ALTER TABLE members ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT FALSE');
+  await pgPool.query('ALTER TABLE members ADD COLUMN IF NOT EXISTS archived_at TEXT');
+  await pgPool.query('ALTER TABLE members ADD COLUMN IF NOT EXISTS deleted_at TEXT');
+  await pgPool.query('ALTER TABLE members ADD COLUMN IF NOT EXISTS membership_status TEXT DEFAULT \'Active\'');
+  await pgPool.query('ALTER TABLE attendance ADD COLUMN IF NOT EXISTS capture_method TEXT DEFAULT \'Manual Entry\'');
 }
 
 async function migrateSqlite() {
   await sqliteDb.exec(schema('sqlite'));
+  await ensureSqliteColumn('members', 'archived', 'INTEGER DEFAULT 0');
+  await ensureSqliteColumn('members', 'archived_at', 'TEXT');
+  await ensureSqliteColumn('members', 'deleted_at', 'TEXT');
+  await ensureSqliteColumn('members', 'membership_status', "TEXT DEFAULT 'Active'");
+  await ensureSqliteColumn('attendance', 'capture_method', "TEXT DEFAULT 'Manual Entry'");
 }
 
 function schema(driver) {
@@ -156,6 +166,10 @@ function schema(driver) {
       area TEXT,
       street_address TEXT,
       landmark TEXT,
+      archived ${bool},
+      archived_at TEXT,
+      deleted_at TEXT,
+      membership_status TEXT DEFAULT 'Active',
       created_at TEXT DEFAULT ${now}
     );
 
@@ -165,6 +179,7 @@ function schema(driver) {
       attendance_date TEXT NOT NULL,
       service_type TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'Present',
+      capture_method TEXT DEFAULT 'Manual Entry',
       recorded_by TEXT,
       created_at TEXT DEFAULT ${now}
     );
@@ -190,6 +205,78 @@ function schema(driver) {
       created_at TEXT DEFAULT ${now}
     );
 
+    CREATE TABLE IF NOT EXISTS followup_feedback (
+      id ${serial},
+      followup_id TEXT,
+      member_id ${refId} REFERENCES members(id) ON DELETE CASCADE,
+      officer_email TEXT,
+      contact_date TEXT NOT NULL,
+      contact_method TEXT NOT NULL,
+      feedback_category TEXT,
+      notes TEXT,
+      prayer_request TEXT,
+      status TEXT NOT NULL,
+      created_at TEXT DEFAULT ${now}
+    );
+
+    CREATE TABLE IF NOT EXISTS member_notes (
+      id ${serial},
+      member_id ${refId} REFERENCES members(id) ON DELETE CASCADE,
+      note_type TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_by TEXT,
+      created_at TEXT DEFAULT ${now}
+    );
+
+    CREATE TABLE IF NOT EXISTS notifications (
+      id ${serial},
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      entity_type TEXT,
+      entity_id TEXT,
+      status TEXT DEFAULT 'Unread',
+      channel TEXT DEFAULT 'In-App Notification',
+      created_at TEXT DEFAULT ${now}
+    );
+
+    CREATE TABLE IF NOT EXISTS celebrations (
+      id ${serial},
+      member_id ${refId} REFERENCES members(id) ON DELETE CASCADE,
+      occasion_type TEXT NOT NULL,
+      celebration_date TEXT NOT NULL,
+      message TEXT,
+      status TEXT DEFAULT 'Pending',
+      created_at TEXT DEFAULT ${now}
+    );
+
+    CREATE TABLE IF NOT EXISTS anniversaries (
+      id ${serial},
+      member_id ${refId} REFERENCES members(id) ON DELETE CASCADE,
+      occasion_type TEXT NOT NULL,
+      occasion_date TEXT NOT NULL,
+      created_at TEXT DEFAULT ${now}
+    );
+
+    CREATE TABLE IF NOT EXISTS member_home_cells (
+      id ${serial},
+      member_id ${refId} REFERENCES members(id) ON DELETE CASCADE,
+      home_cell_id ${refId} REFERENCES home_cells(id) ON DELETE CASCADE,
+      transferred_by TEXT,
+      reason TEXT,
+      created_at TEXT DEFAULT ${now}
+    );
+
+    CREATE TABLE IF NOT EXISTS deletion_history (
+      id ${serial},
+      member_id TEXT,
+      member_name TEXT,
+      reason TEXT NOT NULL,
+      deleted_by TEXT,
+      snapshot ${json},
+      created_at TEXT DEFAULT ${now}
+    );
+
     CREATE TABLE IF NOT EXISTS audit_logs (
       id ${serial},
       user_email TEXT,
@@ -200,4 +287,11 @@ function schema(driver) {
       created_at TEXT DEFAULT ${now}
     );
   `;
+}
+
+async function ensureSqliteColumn(table, column, definition) {
+  const columns = await sqliteDb.all(`PRAGMA table_info(${table})`);
+  if (!columns.some(item => item.name === column)) {
+    await sqliteDb.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
 }
