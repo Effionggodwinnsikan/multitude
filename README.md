@@ -63,9 +63,35 @@ Create `api/.env` when connecting PostgreSQL:
 PORT=4000
 JWT_SECRET=replace-this-secret
 DATABASE_URL=postgres://user:password@localhost:5432/churchcare
+DATABASE_SSL=true
+CLIENT_ORIGIN=http://localhost:5173,https://your-vercel-app.vercel.app
 ```
 
 If `DATABASE_URL` is omitted, the API uses a local SQLite database in `api/data/demo.sqlite` for development.
+
+Create `client/.env` for local frontend development:
+
+```bash
+VITE_API_URL=http://localhost:4000/api
+```
+
+## Deploying to Render and Vercel
+
+Deploy `api/` as a Render Web Service.
+
+- Build command: `npm install`
+- Start command: `npm start`
+- Required environment variables: `JWT_SECRET`, `DATABASE_URL`, `DATABASE_SSL=true`, `CLIENT_ORIGIN=https://your-vercel-app.vercel.app`
+
+Render provides `PORT` automatically. The API listens on that port without binding to `127.0.0.1`, so it can receive public traffic.
+
+Deploy `client/` to Vercel.
+
+- Build command: `npm run build`
+- Output directory: `dist`
+- Required environment variable: `VITE_API_URL=https://your-render-service.onrender.com/api`
+
+After changing `VITE_API_URL` in Vercel, redeploy the frontend so the new value is bundled into the app.
 
 ## Codebase Structure
 

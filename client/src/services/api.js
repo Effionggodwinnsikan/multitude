@@ -15,3 +15,18 @@ export function makeApi(token, baseUrl) {
     delete: (path, body) => request(path, { method: 'DELETE', body: JSON.stringify(body || {}) })
   };
 }
+
+export async function loginWithPassword(baseUrl, credentials) {
+  const response = await fetch(`${baseUrl}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(credentials)
+  });
+
+  if (!response.ok) {
+    const message = response.status === 401 ? 'Invalid email or password.' : 'Could not sign in. Check that the API is running.';
+    throw new Error(message);
+  }
+
+  return response.json();
+}

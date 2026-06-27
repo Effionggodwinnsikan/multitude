@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import express from 'express';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import { corsOrigin, port } from './config.js';
 import { initDb } from './db.js';
 import { router } from './routes.js';
 import { seedIfEmpty } from './seed.js';
@@ -10,11 +11,9 @@ import { seedIfEmpty } from './seed.js';
 dotenv.config();
 
 const app = express();
-const port = process.env.PORT || 4000;
-const host = process.env.HOST || '127.0.0.1';
 
 app.use(helmet());
-app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173' }));
+app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(express.json({ limit: '5mb' }));
 app.use(morgan('dev'));
 
@@ -29,6 +28,6 @@ app.use((error, _req, res, _next) => {
 await initDb();
 await seedIfEmpty();
 
-app.listen(port, host, () => {
-  console.log(`Church Care API running on http://${host}:${port}`);
+app.listen(port, () => {
+  console.log(`Church Care API running on port ${port}`);
 });

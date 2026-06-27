@@ -32,10 +32,12 @@ import {
   Users
 } from 'lucide-react';
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { ConfigurationError, Login } from './components/AuthScreens';
+import { apiBaseUrl, apiConfigError } from './config';
 import { makeApi } from './services/api';
 import './styles.css';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+const API_URL = apiBaseUrl;
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
@@ -47,7 +49,9 @@ function App() {
     localStorage.setItem('theme', dark ? 'dark' : 'light');
   }, [dark]);
 
-  if (!token) return <Login onLogin={(nextToken, nextUser) => {
+  if (apiConfigError) return <ConfigurationError message={apiConfigError} />;
+
+  if (!token) return <Login apiUrl={API_URL} onLogin={(nextToken, nextUser) => {
     localStorage.setItem('token', nextToken);
     localStorage.setItem('user', JSON.stringify(nextUser));
     setToken(nextToken);
@@ -127,49 +131,6 @@ function Shell({ token, user, dark, setDark, onLogout }) {
           {view === 'settings' && <SettingsView api={api} />}
         </div>
       </main>
-    </div>
-  );
-}
-
-function Login({ onLogin }) {
-  const [email, setEmail] = useState('admin@gracecity.test');
-  const [password, setPassword] = useState('password123');
-  const [error, setError] = useState('');
-
-  async function submit(event) {
-    event.preventDefault();
-    setError('');
-    try {
-      const response = await fetch(`${API_URL}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
-      });
-      if (!response.ok) throw new Error('Login failed');
-      const data = await response.json();
-      onLogin(data.token, data.user);
-    } catch {
-      setError('Could not sign in. Check that the API is running.');
-    }
-  }
-
-  return (
-    <div className="grid min-h-screen place-items-center bg-slate-100 p-4 dark:bg-slate-950">
-      <form onSubmit={submit} className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-        <div className="mb-6 flex items-center gap-3">
-          <div className="grid size-12 place-items-center rounded-lg bg-blue-600 text-white"><ShieldCheck /></div>
-          <div>
-            <h1 className="text-2xl font-bold">Church Member Care</h1>
-            <p className="text-sm text-slate-500">Secure staff login</p>
-          </div>
-        </div>
-        <label className="field-label">Email</label>
-        <input className="input" value={email} onChange={e => setEmail(e.target.value)} />
-        <label className="field-label">Password</label>
-        <input className="input" type="password" value={password} onChange={e => setPassword(e.target.value)} />
-        {error && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-        <button className="primary-button mt-5 w-full">Sign in</button>
-      </form>
     </div>
   );
 }
