@@ -57,17 +57,31 @@ client/src/
 
 ## Environment
 
-Create `api/.env` when connecting PostgreSQL:
+Create `api/.env` for local API development. Leave `DATABASE_URL` empty to use the local SQLite demo database:
 
 ```bash
 PORT=4000
 JWT_SECRET=replace-this-secret
-DATABASE_URL=postgres://user:password@localhost:5432/churchcare
-DATABASE_SSL=true
+DATABASE_URL=
+DATABASE_SSL=
+RUN_STARTUP_MIGRATIONS=true
 CLIENT_ORIGIN=http://localhost:5173,https://your-vercel-app.vercel.app
 ```
 
 If `DATABASE_URL` is omitted, the API uses a local SQLite database in `api/data/demo.sqlite` for development.
+
+For local PostgreSQL, use a local URL only on your own computer:
+
+```bash
+DATABASE_URL=postgres://user:password@localhost:5432/churchcare
+DATABASE_SSL=false
+```
+
+Do not use a `localhost` or `127.0.0.1` database URL on Render or Vercel. In production, use a hosted PostgreSQL connection string:
+
+```bash
+DATABASE_URL=postgresql://user:password@host.neon.tech/database?sslmode=require
+```
 
 Create `client/.env` for local frontend development:
 
@@ -81,9 +95,18 @@ Deploy `api/` as a Render Web Service.
 
 - Build command: `npm install`
 - Start command: `npm start`
-- Required environment variables: `JWT_SECRET`, `DATABASE_URL`, `DATABASE_SSL=true`, `CLIENT_ORIGIN=https://your-vercel-app.vercel.app`
+- Required environment variables: `JWT_SECRET`, `DATABASE_URL`, `CLIENT_ORIGIN=https://your-vercel-app.vercel.app`
+- Optional environment variables: `DATABASE_SSL=true`, `RUN_STARTUP_MIGRATIONS=true`
 
 Render provides `PORT` automatically. The API listens on that port without binding to `127.0.0.1`, so it can receive public traffic.
+
+If you see `connect ECONNREFUSED 127.0.0.1:5432`, the deployed app is using a local database URL. Replace it with the hosted PostgreSQL URL from Render Postgres, Neon, Supabase, Railway, or another cloud provider, then redeploy.
+
+For simple Render deployments, keep `RUN_STARTUP_MIGRATIONS=true`. For serverless-style deployments, set `RUN_STARTUP_MIGRATIONS=false` and run migrations separately:
+
+```bash
+npm run migrate --workspace api
+```
 
 Deploy `client/` to Vercel.
 

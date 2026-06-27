@@ -4,20 +4,21 @@ import path from 'path';
 import pg from 'pg';
 import sqlite3 from 'sqlite3';
 import { open } from 'sqlite';
+import { databaseUrl, isPostgres, postgresSsl, runStartupMigrations, validateDatabaseConfig } from './config.js';
 
 dotenv.config();
 
-const isPostgres = Boolean(process.env.DATABASE_URL);
 let sqliteDb;
 let pgPool;
 
 export async function initDb() {
   if (isPostgres) {
+    validateDatabaseConfig();
     pgPool = new pg.Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined
+      connectionString: databaseUrl,
+      ssl: postgresSsl()
     });
-    await migratePostgres();
+    if (runStartupMigrations) await migrateDb();
     return;
   }
 
@@ -28,6 +29,15 @@ export async function initDb() {
     driver: sqlite3.Database
   });
   await sqliteDb.exec('PRAGMA foreign_keys = ON');
+  if (runStartupMigrations) await migrateDb();
+}
+
+export async function migrateDb() {
+  if (isPostgres) {
+    await migratePostgres();
+    return;
+  }
+
   await migrateSqlite();
 }
 
