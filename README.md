@@ -19,6 +19,8 @@ npm run dev
 Frontend: http://localhost:5173  
 API: http://localhost:4000
 
+The app works locally without extra setup. By default, the API uses SQLite and the client calls `http://localhost:4000/api`.
+
 Demo login:
 
 - Email: `admin@gracecity.test`
@@ -64,6 +66,7 @@ PORT=4000
 JWT_SECRET=replace-this-secret
 DATABASE_URL=
 DATABASE_SSL=
+ALLOW_LOCAL_DATABASE=false
 RUN_STARTUP_MIGRATIONS=true
 CLIENT_ORIGIN=http://localhost:5173,https://your-vercel-app.vercel.app
 ```
@@ -75,6 +78,7 @@ For local PostgreSQL, use a local URL only on your own computer:
 ```bash
 DATABASE_URL=postgres://user:password@localhost:5432/churchcare
 DATABASE_SSL=false
+ALLOW_LOCAL_DATABASE=true
 ```
 
 Do not use a `localhost` or `127.0.0.1` database URL on Render or Vercel. In production, use a hosted PostgreSQL connection string:
@@ -83,11 +87,20 @@ Do not use a `localhost` or `127.0.0.1` database URL on Render or Vercel. In pro
 DATABASE_URL=postgresql://user:password@host.neon.tech/database?sslmode=require
 ```
 
+Render PostgreSQL provides two common URL types:
+
+- Internal/private URL, often with a host like `dpg-xxxx-a`. Use this only when the API is also deployed on Render.
+- External URL, usually with a full public hostname. Use this for local development, Vercel-hosted backends, or any backend outside Render.
+
+If your API is deployed on Render, put the Render internal database URL in the Render Web Service `DATABASE_URL` environment variable. If you are running the API on your laptop, leave `DATABASE_URL` empty for SQLite or use Render's external database URL.
+
 Create `client/.env` for local frontend development:
 
 ```bash
 VITE_API_URL=http://localhost:4000/api
 ```
+
+This client env file is optional for normal local development because localhost is the fallback. It is useful if your local API runs on a different port.
 
 ## Deploying to Render and Vercel
 
@@ -102,6 +115,8 @@ Render provides `PORT` automatically. The API listens on that port without bindi
 
 If you see `connect ECONNREFUSED 127.0.0.1:5432`, the deployed app is using a local database URL. Replace it with the hosted PostgreSQL URL from Render Postgres, Neon, Supabase, Railway, or another cloud provider, then redeploy.
 
+If you see an error saying the database URL uses a Render private database host, the API is running somewhere other than Render with an internal Render database URL. Move the API to Render or switch to the database's external URL.
+
 For simple Render deployments, keep `RUN_STARTUP_MIGRATIONS=true`. For serverless-style deployments, set `RUN_STARTUP_MIGRATIONS=false` and run migrations separately:
 
 ```bash
@@ -115,6 +130,8 @@ Deploy `client/` to Vercel.
 - Required environment variable: `VITE_API_URL=https://your-render-service.onrender.com/api`
 
 After changing `VITE_API_URL` in Vercel, redeploy the frontend so the new value is bundled into the app.
+
+Local production preview also works. Start the API with `npm run start --workspace api`, then preview the built client with `npm run preview --workspace client`; when the browser host is `localhost` or `127.0.0.1`, the built client falls back to `http://localhost:4000/api`.
 
 ## Codebase Structure
 
