@@ -28,6 +28,7 @@ import {
   Trash2,
   Upload,
   UserCog,
+  UserCircle,
   UserPlus,
   Users
 } from 'lucide-react';
@@ -40,8 +41,8 @@ import './styles.css';
 const API_URL = apiBaseUrl;
 
 function App() {
-  const [token, setToken] = useState(localStorage.getItem('token'));
-  const [user, setUser] = useState(JSON.parse(localStorage.getItem('user') || 'null'));
+  const [token, setToken] = useState(() => localStorage.getItem('token'));
+  const [user, setUser] = useState(() => readStoredUser());
   const [dark, setDark] = useState(localStorage.getItem('theme') === 'dark');
 
   useEffect(() => {
@@ -51,23 +52,38 @@ function App() {
 
   if (apiConfigError) return <ConfigurationError message={apiConfigError} />;
 
-  if (!token) return <Login apiUrl={API_URL} onLogin={(nextToken, nextUser) => {
+  if (!token || !user) return <Login apiUrl={API_URL} onLogin={(nextToken, nextUser) => {
     localStorage.setItem('token', nextToken);
     localStorage.setItem('user', JSON.stringify(nextUser));
     setToken(nextToken);
     setUser(nextUser);
   }} />;
 
-  return <Shell token={token} user={user} dark={dark} setDark={setDark} onLogout={() => {
+  return <Shell token={token} user={user} dark={dark} setDark={setDark} onUserUpdate={nextUser => {
+    localStorage.setItem('user', JSON.stringify(nextUser));
+    setUser(nextUser);
+  }} onLogout={() => {
     localStorage.clear();
     setToken(null);
     setUser(null);
   }} />;
 }
 
-function Shell({ token, user, dark, setDark, onLogout }) {
+function readStoredUser() {
+  try {
+    const storedUser = JSON.parse(localStorage.getItem('user') || 'null');
+    return storedUser && typeof storedUser === 'object' ? storedUser : null;
+  } catch {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    return null;
+  }
+}
+
+function Shell({ token, user, dark, setDark, onUserUpdate, onLogout }) {
   const [view, setView] = useState('dashboard');
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const api = useMemo(() => makeApi(token, API_URL), [token]);
 
   const nav = [
@@ -96,10 +112,15 @@ function Shell({ token, user, dark, setDark, onLogout }) {
             </button>
           ))}
         </nav>
-        <div className="rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800">
-          <div className="font-semibold">{user.fullName}</div>
-          <div className="text-slate-500">{user.role}</div>
-        </div>
+        <button className="rounded-lg border border-slate-200 p-3 text-left text-sm transition hover:border-blue-300 hover:bg-blue-50 dark:border-slate-800 dark:hover:border-blue-700 dark:hover:bg-blue-950/50" type="button" onClick={() => setProfileOpen(true)}>
+          <div className="flex items-center gap-3">
+            <Avatar name={user.fullName} src={user.profileImageUrl} size="md" />
+            <div>
+              <div className="font-semibold">{user.fullName}</div>
+              <div className="text-slate-500">{user.role}</div>
+            </div>
+          </div>
+        </button>
       </aside>
 
       <main className="lg:pl-72">
@@ -113,7 +134,8 @@ function Shell({ token, user, dark, setDark, onLogout }) {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <button className="icon-button" onClick={() => setDark(!dark)} aria-label="Toggle theme">{dark ? <Sun size={19} /> : <Moon size={19} />}</button>
-            <button className="icon-button" aria-label="Notifications"><Bell size={19} /></button>
+            <button className="icon-button" onClick={() => setView('notifications')} aria-label="Notifications"><Bell size={19} /></button>
+            <button className="icon-button" onClick={() => setProfileOpen(true)} aria-label="Profile"><UserCircle size={19} /></button>
             <button className="icon-button" onClick={onLogout} aria-label="Log out"><LogOut size={19} /></button>
           </div>
         </header>
@@ -123,7 +145,7 @@ function Shell({ token, user, dark, setDark, onLogout }) {
           {view === 'register' && <RegisterMember api={api} />}
           {view === 'attendance' && <Attendance api={api} />}
           {view === 'followup' && <Followup api={api} />}
-          {view === 'cells' && <HomeCells api={api} />}
+          {view === 'cells' && <HomeCells api={api} onNavigate={setView} />}
           {view === 'celebrations' && <Celebrations api={api} />}
           {view === 'notifications' && <Notifications api={api} />}
           {view === 'reports' && <Reports api={api} />}
@@ -131,6 +153,7 @@ function Shell({ token, user, dark, setDark, onLogout }) {
           {view === 'settings' && <SettingsView api={api} />}
         </div>
       </main>
+      {profileOpen && <ProfileModal api={api} user={user} onClose={() => setProfileOpen(false)} onSaved={user => { onUserUpdate(user); setProfileOpen(false); }} />}
     </div>
   );
 }
@@ -147,6 +170,58 @@ function Brand({ api }) {
         <div className="font-bold leading-tight">{settings?.church_name || 'Church Care'}</div>
         <div className="text-xs text-slate-500">Member Management</div>
       </div>
+    </div>
+  );
+}
+
+function Avatar({ name, src, size = 'lg' }) {
+  const fallback = String(name || 'User')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(part => part[0]?.toUpperCase())
+    .join('') || 'U';
+  const className = size === 'md' ? 'size-11 text-sm' : 'size-16 text-lg';
+  return (
+    <div className={`grid shrink-0 place-items-center overflow-hidden rounded-lg bg-blue-600 font-bold text-white ${className}`}>
+      {src ? <img className="h-full w-full object-cover" src={src} alt="" /> : fallback}
+    </div>
+  );
+}
+
+function ProfileModal({ api, user, onClose, onSaved }) {
+  const [form, setForm] = useState({ fullName: user.fullName || '', profileImageUrl: user.profileImageUrl || '' });
+  const [error, setError] = useState('');
+  async function submit(event) {
+    event.preventDefault();
+    setError('');
+    try {
+      onSaved(await api.put('/profile', form));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4">
+      <form className="w-full max-w-lg rounded-lg border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900" onSubmit={submit}>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2 className="section-title">Profile</h2>
+          <button className="secondary-button" type="button" onClick={onClose}>Close</button>
+        </div>
+        <div className="mb-5 flex items-center gap-4">
+          <Avatar name={form.fullName} src={form.profileImageUrl} />
+          <div>
+            <div className="font-semibold">{user.email}</div>
+            <div className="text-sm text-slate-500">{user.role}</div>
+          </div>
+        </div>
+        <div className="grid gap-3">
+          <Input label="Full Name" value={form.fullName} onChange={fullName => setForm(prev => ({ ...prev, fullName }))} required />
+          <Input label="Profile Image URL" value={form.profileImageUrl} onChange={profileImageUrl => setForm(prev => ({ ...prev, profileImageUrl }))} />
+        </div>
+        {error && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+        <button className="primary-button mt-5"><CheckSquare size={18} /> Save Profile</button>
+      </form>
     </div>
   );
 }
@@ -342,7 +417,7 @@ function MemberProfile({ member, api, onReload }) {
   return (
     <section className="panel">
       <div className="flex items-center gap-3">
-        <div className="grid size-14 place-items-center rounded-lg bg-slate-200 text-xl font-bold dark:bg-slate-800">{member.first_name?.[0]}{member.last_name?.[0]}</div>
+        <Avatar name={`${member.first_name} ${member.last_name}`} src={member.photo_url} />
         <div>
           <h2 className="text-xl font-bold">{member.first_name} {member.last_name}</h2>
           <p className="text-sm text-slate-500">{member.member_id} · {member.membership_category}</p>
@@ -387,7 +462,7 @@ function MemberEditModal({ api, member, onClose, onSaved }) {
     firstName: member.first_name, middleName: member.middle_name || '', lastName: member.last_name,
     gender: member.gender || 'Female', dateOfBirth: member.date_of_birth || '', maritalStatus: member.marital_status || 'Single',
     occupation: member.occupation || '', phone: member.phone || '', altPhone: member.alt_phone || '', whatsapp: member.whatsapp || '',
-    email: member.email || '', membershipCategory: member.membership_category || 'Full Member', branch: member.branch || 'Main Branch',
+    email: member.email || '', photoUrl: member.photo_url || '', membershipCategory: member.membership_category || 'Full Member', branch: member.branch || 'Main Branch',
     department: member.department || '', homeCellId: member.home_cell_id || '', state: member.state || '', city: member.city || '',
     localGovernment: member.local_government || '', area: member.area || '', streetAddress: member.street_address || '',
     landmark: member.landmark || '', membershipStatus: member.membership_status || 'Active'
@@ -403,6 +478,7 @@ function MemberEditModal({ api, member, onClose, onSaved }) {
           <Input label="Last Name" value={form.lastName} onChange={v => set('lastName', v)} required />
           <Input label="Phone Number" value={form.phone} onChange={v => set('phone', v)} required />
           <Input label="WhatsApp Number" value={form.whatsapp} onChange={v => set('whatsapp', v)} />
+          <Input label="Profile Image URL" value={form.photoUrl} onChange={v => set('photoUrl', v)} />
           <Input label="Date of Birth" type="date" value={form.dateOfBirth} onChange={v => set('dateOfBirth', v)} />
           <Select label="Membership Category" value={form.membershipCategory} onChange={v => set('membershipCategory', v)} options={['First Timer', 'Visitor', 'Returning Member', 'Full Member', 'Worker', 'Minister']} />
           <Select label="Membership Status" value={form.membershipStatus} onChange={v => set('membershipStatus', v)} options={['Active', 'Inactive', 'Archived']} />
@@ -559,6 +635,7 @@ function Followup({ api }) {
     api.get('/members').then(setMembers);
   }, [api]);
   const lists = report ? Object.entries(report) : [];
+  const shareText = rows => encodeURIComponent(rows.slice(0, 6).map(member => `${member.name} - ${member.followupReason} - ${member.phone || member.whatsapp || ''}`).join('\n'));
   async function submitFeedback(event) {
     event.preventDefault();
     await api.post('/followups/feedback', feedback);
@@ -591,7 +668,11 @@ function Followup({ api }) {
         <section className="panel" key={key}>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <h2 className="section-title">{humanize(key)} <span className="text-slate-500">({members.length})</span></h2>
-            <div className="flex gap-2"><button className="secondary-button"><MessageCircle size={18} /> WhatsApp</button><button className="secondary-button"><Send size={18} /> Telegram</button><button className="secondary-button"><Mail size={18} /> Email</button></div>
+            <div className="flex gap-2">
+              <a className="secondary-button" href={`https://wa.me/?text=${shareText(members)}`} target="_blank" rel="noreferrer"><MessageCircle size={18} /> WhatsApp</a>
+              <a className="secondary-button" href={`https://t.me/share/url?url=&text=${shareText(members)}`} target="_blank" rel="noreferrer"><Send size={18} /> Telegram</a>
+              <a className="secondary-button" href={`mailto:?subject=Church follow-up list&body=${shareText(members)}`}><Mail size={18} /> Email</a>
+            </div>
           </div>
           <div className="grid gap-2">
             {members.slice(0, 6).map(member => (
@@ -607,7 +688,7 @@ function Followup({ api }) {
   );
 }
 
-function HomeCells({ api }) {
+function HomeCells({ api, onNavigate }) {
   const [cells, setCells] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
   const empty = { cellName: '', area: '', leaderName: '', assistantLeader: '', meetingAddress: '', meetingDay: 'Wednesday', meetingTime: '18:00' };
@@ -640,8 +721,8 @@ function HomeCells({ api }) {
             <p className="mt-1 text-sm text-slate-500">{cell.meeting_address}</p>
             <div className="mt-3 flex gap-2">
               <button className="secondary-button" onClick={() => { setEditingId(cell.id); setForm({ cellName: cell.cell_name, area: cell.area, leaderName: cell.leader_name || '', assistantLeader: cell.assistant_leader || '', meetingAddress: cell.meeting_address || '', meetingDay: cell.meeting_day || 'Wednesday', meetingTime: cell.meeting_time || '18:00' }); }}><Edit size={17} /> Edit</button>
-              <button className="secondary-button"><CalendarCheck size={17} /> Attendance</button>
-              <button className="secondary-button"><FileText size={17} /> Reports</button>
+              <button className="secondary-button" type="button" onClick={() => onNavigate('attendance')}><CalendarCheck size={17} /> Attendance</button>
+              <button className="secondary-button" type="button" onClick={() => onNavigate('reports')}><FileText size={17} /> Reports</button>
               <button className="secondary-button danger" onClick={async () => { await api.delete(`/home-cells/${cell.id}`, {}); load(); }}><Trash2 size={17} /> Delete</button>
             </div>
           </div>)}
@@ -831,7 +912,7 @@ function AdminUsers({ api }) {
   const [roles, setRoles] = useState([]);
   const [permissions, setPermissions] = useState([]);
   const [message, setMessage] = useState('');
-  const [newUser, setNewUser] = useState({ fullName: '', email: '', password: '', roleId: '', active: true });
+  const [newUser, setNewUser] = useState({ fullName: '', email: '', password: '', profileImageUrl: '', roleId: '', active: true });
   const [newRole, setNewRole] = useState({ name: '', permissions: [] });
   const [passwords, setPasswords] = useState({});
 
@@ -853,7 +934,7 @@ function AdminUsers({ api }) {
     event.preventDefault();
     const user = await api.post('/admin/users', newUser);
     setMessage(`${user.full_name} can now log in as ${user.role_name}.`);
-    setNewUser({ fullName: '', email: '', password: '', roleId: newUser.roleId, active: true });
+    setNewUser({ fullName: '', email: '', password: '', profileImageUrl: '', roleId: newUser.roleId, active: true });
     load();
   }
 
@@ -898,10 +979,11 @@ function AdminUsers({ api }) {
           </div>
           {message && <span className="pill">{message}</span>}
         </div>
-        <form onSubmit={createSubAdmin} className="mb-5 grid gap-3 md:grid-cols-5">
+        <form onSubmit={createSubAdmin} className="mb-5 grid gap-3 md:grid-cols-6">
           <Input label="Full Name" value={newUser.fullName} onChange={fullName => setNewUser(prev => ({ ...prev, fullName }))} required />
           <Input label="Email" type="email" value={newUser.email} onChange={email => setNewUser(prev => ({ ...prev, email }))} required />
           <Input label="Temporary Password" type="password" value={newUser.password} onChange={password => setNewUser(prev => ({ ...prev, password }))} required />
+          <Input label="Profile Image URL" value={newUser.profileImageUrl} onChange={profileImageUrl => setNewUser(prev => ({ ...prev, profileImageUrl }))} />
           <Select label="Role" value={newUser.roleId} onChange={roleId => setNewUser(prev => ({ ...prev, roleId }))} options={roles.filter(role => role.name !== 'Super Admin').map(role => `${role.id}|${role.name}`)} parseValue />
           <button className="primary-button self-end"><UserPlus size={18} /> Create User</button>
         </form>
@@ -911,7 +993,7 @@ function AdminUsers({ api }) {
             <tbody>
               {users.map(user => (
                 <tr key={user.id}>
-                  <td><strong>{user.full_name}</strong></td>
+                  <td><div className="flex items-center gap-2"><Avatar name={user.full_name} src={user.profile_image_url} size="md" /><strong>{user.full_name}</strong></div></td>
                   <td>{user.email}</td>
                   <td>{user.role_name}</td>
                   <td>{user.active ? 'Active' : 'Inactive'}</td>

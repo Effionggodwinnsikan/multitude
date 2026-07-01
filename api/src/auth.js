@@ -5,12 +5,16 @@ import { getOne, query } from './db.js';
 const jwtSecret = process.env.JWT_SECRET || 'development-secret-change-me';
 
 export async function login(req, res) {
-  const { email, password } = req.body;
+  const { email, password } = req.body || {};
+  if (!email || !password) {
+    return res.status(400).json({ message: 'Email and password are required' });
+  }
+
   const user = await getOne(
     `SELECT users.*, roles.name as role_name, roles.permissions
      FROM users LEFT JOIN roles ON roles.id = users.role_id
-     WHERE users.email = $1`,
-    [email]
+     WHERE lower(users.email) = $1`,
+    [String(email).trim().toLowerCase()]
   );
 
   if (!user || !user.active || !(await bcrypt.compare(password, user.password_hash))) {
@@ -30,6 +34,7 @@ export async function login(req, res) {
       fullName: user.full_name,
       email: user.email,
       role: user.role_name,
+      profileImageUrl: user.profile_image_url || defaultProfileImage(user.full_name),
       permissions: parsePermissions(user.permissions)
     }
   });
@@ -74,4 +79,14 @@ function parsePermissions(value) {
   } catch {
     return [];
   }
+}
+
+function defaultProfileImage(name = 'User') {
+  const initials = String(name)
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(part => part[0]?.toUpperCase())
+    .join('') || 'U';
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(initials)}&background=2563eb&color=fff&size=128&bold=true`;
 }

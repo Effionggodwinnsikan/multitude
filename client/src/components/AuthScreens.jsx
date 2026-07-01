@@ -1,20 +1,25 @@
-import { Settings, ShieldCheck } from 'lucide-react';
+import { Eye, EyeOff, Settings, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 import { loginWithPassword } from '../services/api';
 
 export function Login({ apiUrl, onLogin }) {
   const [email, setEmail] = useState('admin@gracecity.test');
   const [password, setPassword] = useState('password123');
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   async function submit(event) {
     event.preventDefault();
     setError('');
+    setLoading(true);
     try {
       const data = await loginWithPassword(apiUrl, { email, password });
       onLogin(data.token, data.user);
     } catch (err) {
       setError(err.message);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -29,11 +34,21 @@ export function Login({ apiUrl, onLogin }) {
           </div>
         </div>
         <label className="field-label">Email</label>
-        <input className="input" value={email} onChange={e => setEmail(e.target.value)} />
+        <input className="input" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} />
         <label className="field-label">Password</label>
-        <input className="input" type="password" value={password} onChange={e => setPassword(e.target.value)} />
+        <div className="relative">
+          <input className="input pr-12" type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} />
+          <button
+            className="absolute right-2 top-1/2 grid size-9 -translate-y-1/2 place-items-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white"
+            type="button"
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
+            onClick={() => setShowPassword(value => !value)}
+          >
+            {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+          </button>
+        </div>
         {error && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-        <button className="primary-button mt-5 w-full">Sign in</button>
+        <button className="primary-button mt-5 w-full" disabled={loading}>{loading ? 'Signing in...' : 'Sign in'}</button>
       </form>
     </div>
   );

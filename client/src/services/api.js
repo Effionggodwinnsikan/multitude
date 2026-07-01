@@ -4,7 +4,7 @@ export function makeApi(token, baseUrl) {
       ...options,
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(options.headers || {}) }
     });
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error(await responseMessage(response));
     return response.json();
   }
 
@@ -24,9 +24,19 @@ export async function loginWithPassword(baseUrl, credentials) {
   });
 
   if (!response.ok) {
-    const message = response.status === 401 ? 'Invalid email or password.' : 'Could not sign in. Check that the API is running.';
+    const detail = await responseMessage(response);
+    const message = response.status === 401 ? 'Invalid email or password.' : detail || 'Could not sign in. Check that the API is running.';
     throw new Error(message);
   }
 
   return response.json();
+}
+
+async function responseMessage(response) {
+  const text = await response.text();
+  try {
+    return JSON.parse(text).message || text;
+  } catch {
+    return text;
+  }
 }

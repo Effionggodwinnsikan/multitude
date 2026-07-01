@@ -64,7 +64,7 @@ export async function dashboardStats(filter = {}) {
       MAX(attendance.attendance_date) as last_attendance_date
     FROM members
     LEFT JOIN attendance ON attendance.member_id = members.id AND attendance.status = 'Present'
-    WHERE COALESCE(members.archived, 0) = 0
+    WHERE (members.archived IS NULL OR members.archived = false)
     GROUP BY members.id
   `);
   const periodAttendance = await query(
@@ -105,8 +105,8 @@ export async function dashboardWidgetMembers(widget) {
     FROM members
     LEFT JOIN home_cells ON home_cells.id = members.home_cell_id
     LEFT JOIN attendance ON attendance.member_id = members.id AND attendance.status = 'Present'
-    WHERE COALESCE(members.archived, 0) = 0
-    GROUP BY members.id
+    WHERE (members.archived IS NULL OR members.archived = false)
+    GROUP BY members.id, home_cells.cell_name
   `;
   const rows = await query(base);
   const now = new Date();
@@ -252,7 +252,7 @@ export async function attendanceDashboard() {
     FROM attendance
     WHERE attendance.status = 'Present'
   `);
-  const members = await query('SELECT COUNT(*) as total FROM members WHERE COALESCE(archived, 0) = 0');
+  const members = await query('SELECT COUNT(*) as total FROM members WHERE (archived IS NULL OR archived = false)');
   const category = await query(`
     SELECT members.membership_category, COUNT(attendance.id) as total
     FROM attendance
@@ -277,7 +277,7 @@ export async function celebrationRows(days = 30, occasionType = 'All Occasions')
       home_cells.cell_name
     FROM members
     LEFT JOIN home_cells ON home_cells.id = members.home_cell_id
-    WHERE date_of_birth IS NOT NULL AND date_of_birth != '' AND COALESCE(members.archived, 0) = 0
+    WHERE date_of_birth IS NOT NULL AND date_of_birth != '' AND (members.archived IS NULL OR members.archived = false)
   `);
   const anniversaryRows = await query(`
     SELECT members.id, members.member_id, first_name, last_name, phone, whatsapp,
@@ -287,7 +287,7 @@ export async function celebrationRows(days = 30, occasionType = 'All Occasions')
     LEFT JOIN home_cells ON home_cells.id = members.home_cell_id
     WHERE anniversaries.occasion_date IS NOT NULL
       AND anniversaries.occasion_date != ''
-      AND COALESCE(members.archived, 0) = 0
+      AND (members.archived IS NULL OR members.archived = false)
   `);
   const today = new Date();
   const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());

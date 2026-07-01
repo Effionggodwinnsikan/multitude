@@ -14,6 +14,7 @@ import {
   updateMember,
   attendanceSummary
 } from './memberService.js';
+import { getUser, updateUserProfile } from './services/userService.js';
 import {
   attendanceDashboard,
   attendanceReports,
@@ -35,6 +36,19 @@ router.post('/auth/login', login);
 
 router.use(requireAuth);
 router.use('/admin', adminRouter);
+
+router.get('/profile', wrap(async (req, res) => {
+  const user = await getUser(req.user.id);
+  if (!user) return res.status(404).json({ message: 'User profile not found' });
+  res.json(profileResponse(user, req.user.permissions));
+}));
+
+router.put('/profile', wrap(async (req, res) => {
+  if (!req.body?.fullName) return res.status(400).json({ message: 'Full name is required' });
+  const user = await updateUserProfile(req.user.id, req.body);
+  await audit(req, 'updated profile', 'users', req.user.id, { email: user.email });
+  res.json(profileResponse(user, req.user.permissions));
+}));
 
 router.get('/settings', wrap(async (_req, res) => {
   const rows = await query('SELECT * FROM church_settings WHERE id = $1', ['main']);
@@ -303,3 +317,14 @@ router.post('/notifications/generate', requirePermission('members:read'), wrap(a
 router.get('/audit-logs', requirePermission('audit:read'), wrap(async (_req, res) => {
   res.json(await query('SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 100'));
 }));
+
+function profileResponse(user, permissions = []) {
+  return {
+    id: user.id,
+    fullName: user.full_name,
+    email: user.email,
+    role: user.role_name,
+    profileImageUrl: user.profile_image_url,
+    permissions
+  };
+}

@@ -46,16 +46,17 @@ export async function getRole(id) {
 }
 
 export async function listUsers() {
-  return query(`
-    SELECT users.id, users.full_name, users.email, users.active, users.created_at,
+  const users = await query(`
+    SELECT users.id, users.full_name, users.email, users.profile_image_url, users.active, users.created_at,
       roles.id as role_id, roles.name as role_name
     FROM users
     LEFT JOIN roles ON roles.id = users.role_id
     ORDER BY users.created_at DESC
   `);
+  return users.map(withProfileImage);
 }
 
-export async function createUser({ fullName, email, password, roleId, active = true }) {
+export async function createUser({ fullName, email, password, roleId, profileImageUrl = '', active = true }) {
   const role = await getRole(roleId);
   if (!role) throw new Error('Selected role does not exist');
   if (role.name === 'Super Admin') throw new Error('Create another Super Admin from the database console only');
@@ -63,8 +64,8 @@ export async function createUser({ fullName, email, password, roleId, active = t
   if (existing) throw new Error('A user with this email already exists');
   const id = uuid();
   await query(
-    'INSERT INTO users (id, full_name, email, password_hash, role_id, active) VALUES ($1, $2, $3, $4, $5, $6)',
-    [id, fullName, String(email).toLowerCase(), await bcrypt.hash(password, 10), roleId, Boolean(active)]
+    'INSERT INTO users (id, full_name, email, password_hash, profile_image_url, role_id, active) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+    [id, fullName, String(email).trim().toLowerCase(), await bcrypt.hash(password, 10), profileImageUrl || defaultProfileImage(fullName), roleId, Boolean(active)]
   );
   return getUser(id);
 }
@@ -87,14 +88,23 @@ export async function resetUserPassword(userId, password) {
   return getUser(userId);
 }
 
+export async function updateUserProfile(userId, { fullName, profileImageUrl }) {
+  await query(
+    'UPDATE users SET full_name=$1, profile_image_url=$2 WHERE id=$3',
+    [fullName, profileImageUrl || defaultProfileImage(fullName), userId]
+  );
+  return getUser(userId);
+}
+
 export async function getUser(id) {
-  return getOne(`
-    SELECT users.id, users.full_name, users.email, users.active, users.created_at,
+  const user = await getOne(`
+    SELECT users.id, users.full_name, users.email, users.profile_image_url, users.active, users.created_at,
       roles.id as role_id, roles.name as role_name
     FROM users
     LEFT JOIN roles ON roles.id = users.role_id
     WHERE users.id = $1
   `, [id]);
+  return user ? withProfileImage(user) : null;
 }
 
 function cleanPermissions(permissions) {
@@ -108,4 +118,18 @@ function parsePermissions(value) {
   } catch {
     return [];
   }
+}
+
+function defaultProfileImage(name = 'User') {
+  const initials = String(name)
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(part => part[0]?.toUpperCase())
+    .join('') || 'U';
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(initials)}&background=2563eb&color=fff&size=128&bold=true`;
+}
+
+function withProfileImage(user) {
+  return { ...user, profile_image_url: user.profile_image_url || defaultProfileImage(user.full_name) };
 }

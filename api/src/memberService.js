@@ -78,7 +78,7 @@ export async function searchMembers(search = '', filters = {}) {
         OR lower(COALESCE(membership_category, '')) LIKE $1
         OR lower(members.member_id) LIKE $1
        )
-     GROUP BY members.id
+     GROUP BY members.id, home_cells.cell_name
      ORDER BY members.created_at DESC`,
     [like]
   );
@@ -100,13 +100,13 @@ export async function updateMember(id, data) {
   await query(
     `UPDATE members SET first_name=$1, middle_name=$2, last_name=$3, gender=$4, date_of_birth=$5,
       marital_status=$6, occupation=$7, phone=$8, alt_phone=$9, whatsapp=$10, email=$11,
-      membership_category=$12, branch=$13, department=$14, home_cell_id=$15, state=$16, city=$17,
-      local_government=$18, area=$19, street_address=$20, landmark=$21, membership_status=$22
-     WHERE id=$23`,
+      photo_url=$12, membership_category=$13, branch=$14, department=$15, home_cell_id=$16, state=$17, city=$18,
+      local_government=$19, area=$20, street_address=$21, landmark=$22, membership_status=$23
+     WHERE id=$24`,
     [
       data.firstName, data.middleName || '', data.lastName, data.gender, data.dateOfBirth,
       data.maritalStatus, data.occupation, data.phone, data.altPhone, data.whatsapp, data.email,
-      data.membershipCategory, data.branch, data.department, data.homeCellId || null, data.state,
+      data.photoUrl, data.membershipCategory, data.branch, data.department, data.homeCellId || null, data.state,
       data.city, data.localGovernment, data.area, data.streetAddress, data.landmark,
       data.membershipStatus || 'Active', id
     ]

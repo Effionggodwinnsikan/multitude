@@ -4,10 +4,12 @@ import path from 'path';
 import pg from 'pg';
 import sqlite3 from 'sqlite3';
 import { open } from 'sqlite';
+import { fileURLToPath } from 'url';
 import { databaseUrl, isPostgres, postgresSsl, runStartupMigrations, validateDatabaseConfig } from './config.js';
 
 dotenv.config();
 
+const apiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 let sqliteDb;
 let pgPool;
 
@@ -22,7 +24,7 @@ export async function initDb() {
     return;
   }
 
-  const dataDir = path.resolve('data');
+  const dataDir = path.join(apiRoot, 'data');
   fs.mkdirSync(dataDir, { recursive: true });
   sqliteDb = await open({
     filename: path.join(dataDir, 'demo.sqlite'),
@@ -82,6 +84,7 @@ async function migratePostgres() {
   await pgPool.query('ALTER TABLE members ADD COLUMN IF NOT EXISTS deleted_at TEXT');
   await pgPool.query('ALTER TABLE members ADD COLUMN IF NOT EXISTS membership_status TEXT DEFAULT \'Active\'');
   await pgPool.query('ALTER TABLE attendance ADD COLUMN IF NOT EXISTS capture_method TEXT DEFAULT \'Manual Entry\'');
+  await pgPool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_image_url TEXT');
 }
 
 async function migrateSqlite() {
@@ -91,6 +94,7 @@ async function migrateSqlite() {
   await ensureSqliteColumn('members', 'deleted_at', 'TEXT');
   await ensureSqliteColumn('members', 'membership_status', "TEXT DEFAULT 'Active'");
   await ensureSqliteColumn('attendance', 'capture_method', "TEXT DEFAULT 'Manual Entry'");
+  await ensureSqliteColumn('users', 'profile_image_url', 'TEXT');
 }
 
 function schema(driver) {
@@ -126,6 +130,7 @@ function schema(driver) {
       full_name TEXT NOT NULL,
       email TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
+      profile_image_url TEXT,
       role_id ${refId} REFERENCES roles(id),
       active ${bool},
       created_at TEXT DEFAULT ${now}
