@@ -90,6 +90,9 @@ router.get('/members', requirePermission('members:read'), wrap(async (req, res) 
 }));
 
 router.post('/members', requirePermission('members:create'), wrap(async (req, res) => {
+  if (!req.body?.firstName || !req.body?.lastName || !req.body?.phone || !req.body?.membershipCategory) {
+    return res.status(400).json({ message: 'First name, last name, phone number, and membership category are required' });
+  }
   const member = await createMember(req.body);
   await audit(req, 'created member', 'members', member.id, { memberId: member.member_id });
   res.status(201).json(member);
@@ -102,7 +105,11 @@ router.get('/members/:id', requirePermission('members:read'), wrap(async (req, r
 }));
 
 router.put('/members/:id', requirePermission('members:create'), wrap(async (req, res) => {
+  if (!req.body?.firstName || !req.body?.lastName || !req.body?.phone || !req.body?.membershipCategory) {
+    return res.status(400).json({ message: 'First name, last name, phone number, and membership category are required' });
+  }
   const member = await updateMember(req.params.id, req.body);
+  if (!member) return res.status(404).json({ message: 'Member not found' });
   await audit(req, 'updated member', 'members', req.params.id, { memberId: member?.member_id });
   res.json(member);
 }));
@@ -122,20 +129,28 @@ router.delete('/members/:id', requirePermission('members:create'), wrap(async (r
 }));
 
 router.post('/members/:id/notes', requirePermission('members:create'), wrap(async (req, res) => {
+  if (!req.body?.body) return res.status(400).json({ message: 'Note details are required' });
   const member = await addMemberNote(req.params.id, req.body.noteType || 'Note', req.body.body, req.user.email);
+  if (!member) return res.status(404).json({ message: 'Member not found' });
   await audit(req, 'added member note', 'members', req.params.id, { noteType: req.body.noteType });
   res.status(201).json(member);
 }));
 
 router.post('/members/:id/home-cell', requirePermission('homecells:create'), wrap(async (req, res) => {
+  if (!req.body?.homeCellId) return res.status(400).json({ message: 'Home cell is required' });
   const member = await transferMemberHomeCell(req.params.id, req.body.homeCellId, req.user.email, req.body.reason);
+  if (!member) return res.status(404).json({ message: 'Member not found' });
   await audit(req, 'transferred member home cell', 'members', req.params.id, { homeCellId: req.body.homeCellId });
   res.json(member);
 }));
 
 router.post('/attendance', requirePermission('attendance:create'), wrap(async (req, res) => {
   const rows = Array.isArray(req.body.entries) ? req.body.entries : [req.body];
+  if (!rows.length) return res.status(400).json({ message: 'At least one attendance entry is required' });
   for (const row of rows) {
+    if (!row.memberId || !row.attendanceDate || !row.serviceType) {
+      return res.status(400).json({ message: 'Member, attendance date, and service type are required for every attendance entry' });
+    }
     await query(
       'INSERT INTO attendance (member_id, attendance_date, service_type, status, capture_method, recorded_by) VALUES ($1, $2, $3, $4, $5, $6)',
       [row.memberId, row.attendanceDate, row.serviceType, row.status || 'Present', row.method || row.captureMethod || 'Manual Entry', req.user.email]
@@ -163,6 +178,7 @@ router.get('/home-cells', requirePermission('homecells:read'), wrap(async (_req,
 
 router.post('/home-cells', requirePermission('homecells:create'), wrap(async (req, res) => {
   const c = req.body;
+  if (!c?.cellName || !c?.area) return res.status(400).json({ message: 'Cell name and area are required' });
   const id = uuid();
   await query(
     'INSERT INTO home_cells (id, cell_name, area, leader_name, assistant_leader, meeting_address, meeting_day, meeting_time) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
@@ -174,6 +190,7 @@ router.post('/home-cells', requirePermission('homecells:create'), wrap(async (re
 
 router.put('/home-cells/:id', requirePermission('homecells:create'), wrap(async (req, res) => {
   const c = req.body;
+  if (!c?.cellName || !c?.area) return res.status(400).json({ message: 'Cell name and area are required' });
   await query(
     `UPDATE home_cells SET cell_name=$1, area=$2, leader_name=$3, assistant_leader=$4,
       meeting_address=$5, meeting_day=$6, meeting_time=$7 WHERE id=$8`,
@@ -210,6 +227,9 @@ router.get('/followups/dashboard', requirePermission('followups:read'), wrap(asy
 
 router.post('/followups/feedback', requirePermission('followups:read'), wrap(async (req, res) => {
   const f = req.body;
+  if (!f?.memberId || !f?.contactDate || !f?.contactMethod || !f?.status) {
+    return res.status(400).json({ message: 'Member, contact date, contact method, and status are required' });
+  }
   await query(
     `INSERT INTO followup_feedback (followup_id, member_id, officer_email, contact_date, contact_method,
       feedback_category, notes, prayer_request, status)

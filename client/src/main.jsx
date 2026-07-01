@@ -88,17 +88,21 @@ function Shell({ token, user, dark, setDark, onUserUpdate, onLogout }) {
 
   const nav = [
     ['dashboard', Home, 'Dashboard'],
-    ['members', Users, 'Members'],
-    ['register', UserPlus, 'Register'],
-    ['attendance', CalendarCheck, 'Attendance'],
-    ['followup', MessageCircle, 'Follow-up'],
-    ['cells', Network, 'Home Cells'],
-    ['celebrations', Cake, 'Celebrations'],
-    ['notifications', Bell, 'Notifications'],
-    ['reports', FileText, 'Reports'],
-    ['admin', UserCog, 'Admin'],
-    ['settings', Settings, 'Settings']
-  ].filter(([id]) => id !== 'admin' || user.role === 'Super Admin');
+    ['members', Users, 'Members', 'members:read'],
+    ['register', UserPlus, 'Register', 'members:create'],
+    ['attendance', CalendarCheck, 'Attendance', ['attendance:read', 'attendance:create']],
+    ['followup', MessageCircle, 'Follow-up', 'followups:read'],
+    ['cells', Network, 'Home Cells', 'homecells:read'],
+    ['celebrations', Cake, 'Celebrations', 'members:read'],
+    ['notifications', Bell, 'Notifications', 'members:read'],
+    ['reports', FileText, 'Reports', 'reports:read'],
+    ['admin', UserCog, 'Admin', () => user.role === 'Super Admin'],
+    ['settings', Settings, 'Settings', 'settings:update']
+  ].filter(([, , , permission]) => canAccess(user, permission));
+
+  useEffect(() => {
+    if (!nav.some(([id]) => id === view)) setView('dashboard');
+  }, [nav, view]);
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
@@ -140,12 +144,12 @@ function Shell({ token, user, dark, setDark, onUserUpdate, onLogout }) {
           </div>
         </header>
         <div className="p-4 sm:p-6">
-          {view === 'dashboard' && <Dashboard api={api} />}
-          {view === 'members' && <Members api={api} />}
+          {view === 'dashboard' && <Dashboard api={api} user={user} />}
+          {view === 'members' && <Members api={api} user={user} />}
           {view === 'register' && <RegisterMember api={api} />}
-          {view === 'attendance' && <Attendance api={api} />}
+          {view === 'attendance' && <Attendance api={api} user={user} />}
           {view === 'followup' && <Followup api={api} />}
-          {view === 'cells' && <HomeCells api={api} onNavigate={setView} />}
+          {view === 'cells' && <HomeCells api={api} user={user} onNavigate={setView} />}
           {view === 'celebrations' && <Celebrations api={api} />}
           {view === 'notifications' && <Notifications api={api} />}
           {view === 'reports' && <Reports api={api} />}
@@ -156,6 +160,15 @@ function Shell({ token, user, dark, setDark, onUserUpdate, onLogout }) {
       {profileOpen && <ProfileModal api={api} user={user} onClose={() => setProfileOpen(false)} onSaved={user => { onUserUpdate(user); setProfileOpen(false); }} />}
     </div>
   );
+}
+
+function canAccess(user, permission) {
+  if (!permission) return true;
+  if (typeof permission === 'function') return permission();
+  const permissions = user?.permissions || [];
+  if (permissions.includes('*')) return true;
+  if (Array.isArray(permission)) return permission.some(item => permissions.includes(item));
+  return permissions.includes(permission);
 }
 
 function Brand({ api }) {
@@ -226,14 +239,20 @@ function ProfileModal({ api, user, onClose, onSaved }) {
   );
 }
 
-function Dashboard({ api }) {
+function Dashboard({ api, user }) {
   const [stats, setStats] = useState(null);
   const [graphs, setGraphs] = useState(null);
   const [filter, setFilter] = useState({ type: 'this_month' });
   const [drilldown, setDrilldown] = useState(null);
+  const [error, setError] = useState('');
+  const canReadMembers = canAccess(user, 'members:read');
   const query = new URLSearchParams(Object.entries(filter).filter(([, value]) => value)).toString();
-  useEffect(() => { api.get(`/dashboard?${query}`).then(setStats); }, [api, query]);
-  useEffect(() => { api.get('/dashboard/graphs').then(setGraphs); }, [api]);
+  useEffect(() => {
+    api.get(`/dashboard?${query}`).then(setStats).catch(err => setError(err.message));
+  }, [api, query]);
+  useEffect(() => {
+    if (canAccess(user, 'reports:read')) api.get('/dashboard/graphs').then(setGraphs).catch(() => setGraphs(null));
+  }, [api, user]);
   const cards = [
     ['Total Members', 'totalMembers'], ['New Members', 'newMembers'], ['First Timers', 'firstTimers'], ['Visitors', 'visitors'],
     ['Returning Members', 'returningMembers'], ['Active Members', 'activeMembers'], ['Inactive Members', 'inactiveMembers'],
@@ -242,6 +261,7 @@ function Dashboard({ api }) {
     ['Home Cell Statistics', 'homeCellStatistics'], ['Attendance Trend', 'attendanceTrend']
   ];
   async function openCard(label, key) {
+    if (!canReadMembers) return;
     const rows = await api.get(`/dashboard/widgets/${key}`);
     setDrilldown({ label, rows });
   }
@@ -258,11 +278,12 @@ function Dashboard({ api }) {
           {filter.type === 'custom_month' && <Input label="Custom Month" type="month" value={filter.month || ''} onChange={month => setFilter(prev => ({ ...prev, month }))} />}
           {filter.type === 'custom_year' && <Input label="Custom Year" type="number" value={filter.year || new Date().getFullYear()} onChange={year => setFilter(prev => ({ ...prev, year }))} />}
         </div>
+        {error && <StatusMessage type="error" message={error} />}
       </section>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {cards.map(([label, key]) => <StatCard key={key} label={label} value={stats?.[key] ?? '...'} onClick={() => openCard(label, key)} />)}
+        {cards.map(([label, key]) => <StatCard key={key} label={label} value={stats?.[key] ?? '...'} onClick={canReadMembers ? () => openCard(label, key) : null} />)}
       </div>
-      <section className="panel">
+      {canAccess(user, 'reports:read') && <section className="panel">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="section-title">Real-time Analytics</h2>
           <ExportShare api={api} scope="entire_report" />
@@ -274,7 +295,7 @@ function Dashboard({ api }) {
           <MetricChart title="Home Cell Growth" data={graphs?.homeCellGrowth || []} color="#dc2626" />
           <MetricChart title="Follow-up Completion Rate" data={graphs?.followupCompletionRate || []} color="#ca8a04" />
         </div>
-      </section>
+      </section>}
       {drilldown && <DrilldownModal title={drilldown.label} rows={drilldown.rows} onClose={() => setDrilldown(null)} />}
     </div>
   );
@@ -335,16 +356,18 @@ function DrilldownModal({ title, rows, onClose }) {
   );
 }
 
-function Members({ api }) {
+function Members({ api, user }) {
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState({ category: '', area: '', homeCell: '', status: '', memberId: '' });
   const [members, setMembers] = useState([]);
   const [selected, setSelected] = useState(null);
   const [editing, setEditing] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [error, setError] = useState('');
+  const canWrite = canAccess(user, 'members:create');
   useEffect(() => {
     const params = new URLSearchParams({ search, ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value)) });
-    const timer = setTimeout(() => api.get(`/members?${params}`).then(setMembers), 150);
+    const timer = setTimeout(() => api.get(`/members?${params}`).then(setMembers).catch(err => setError(err.message)), 150);
     return () => clearTimeout(timer);
   }, [api, search, filters]);
 
@@ -367,6 +390,7 @@ function Members({ api }) {
           <Select label="Attendance Status" value={filters.status} onChange={status => setFilters(prev => ({ ...prev, status }))} options={['', 'Present Recently', 'Absent Last Sunday', 'Absent 30 Days', 'Absent 60 Days', 'Absent 90+ Days', 'Never Attended']} />
           <Input label="Member ID" value={filters.memberId} onChange={memberId => setFilters(prev => ({ ...prev, memberId }))} />
         </div>
+        {error && <StatusMessage type="error" message={error} />}
         <div className="mt-4 overflow-x-auto">
           <table className="data-table">
             <thead><tr><th>Member ID</th><th>Full Name</th><th>Category</th><th>Area</th><th>Phone Number</th><th>WhatsApp Number</th><th>Home Cell</th><th>Date of Birth</th><th>Last Attendance Date</th><th>Attendance Status</th><th>Membership Status</th><th>Actions</th></tr></thead>
@@ -387,9 +411,9 @@ function Members({ api }) {
                   <td>
                     <div className="flex gap-2">
                       <button className="tiny-button" title="View" onClick={() => api.get(`/members/${member.id}`).then(setSelected)}><Users size={15} /></button>
-                      <button className="tiny-button" title="Edit" onClick={() => setEditing(member)}><Edit size={15} /></button>
-                      <button className="tiny-button" title="Archive" onClick={async () => { await api.post(`/members/${member.id}/archive`, {}); await refresh(); }}><Download size={15} /></button>
-                      <button className="tiny-button danger" title="Delete" onClick={() => setDeleteTarget(member)}><Trash2 size={15} /></button>
+                      {canWrite && <button className="tiny-button" title="Edit" onClick={() => setEditing(member)}><Edit size={15} /></button>}
+                      {canWrite && <button className="tiny-button" title="Archive" onClick={async () => { await api.post(`/members/${member.id}/archive`, {}); await refresh(); }}><Download size={15} /></button>}
+                      {canWrite && <button className="tiny-button danger" title="Delete" onClick={() => setDeleteTarget(member)}><Trash2 size={15} /></button>}
                     </div>
                   </td>
                 </tr>
@@ -398,14 +422,14 @@ function Members({ api }) {
           </table>
         </div>
       </section>
-      <MemberProfile member={selected} api={api} onReload={() => selected && api.get(`/members/${selected.id}`).then(setSelected)} />
+      <MemberProfile member={selected} api={api} canWrite={canWrite} onReload={() => selected && api.get(`/members/${selected.id}`).then(setSelected)} />
       {editing && <MemberEditModal api={api} member={editing} onClose={() => setEditing(null)} onSaved={async member => { setSelected(member); setEditing(null); await refresh(); }} />}
       {deleteTarget && <DeleteMemberModal api={api} member={deleteTarget} onClose={() => setDeleteTarget(null)} onDeleted={async () => { setDeleteTarget(null); setSelected(null); await refresh(); }} />}
     </div>
   );
 }
 
-function MemberProfile({ member, api, onReload }) {
+function MemberProfile({ member, api, canWrite, onReload }) {
   const [note, setNote] = useState({ noteType: 'Note', body: '' });
   if (!member) return <section className="panel grid place-items-center text-center text-slate-500">Select a member to view history.</section>;
   async function addNote(event) {
@@ -445,11 +469,11 @@ function MemberProfile({ member, api, onReload }) {
         <Info label="Meeting" value={[member.meeting_day, member.meeting_time].filter(Boolean).join(' ')} />
       </div>
       <h3 className="mt-6 font-semibold">Notes, Prayer Requests & Celebration History</h3>
-      <form onSubmit={addNote} className="mt-2 grid gap-2">
+      {canWrite ? <form onSubmit={addNote} className="mt-2 grid gap-2">
         <Select label="Entry Type" value={note.noteType} onChange={noteType => setNote(prev => ({ ...prev, noteType }))} options={['Note', 'Prayer Request', 'Celebration History']} />
         <Input label="Details" value={note.body} onChange={body => setNote(prev => ({ ...prev, body }))} required />
         <button className="secondary-button"><Plus size={17} /> Add Entry</button>
-      </form>
+      </form> : <p className="mt-2 text-sm text-slate-500">You have view-only access to member notes.</p>}
       <div className="mt-3 grid gap-2">
         {member.notes?.map(item => <div className="mini-row" key={item.id}><span>{item.note_type}: {item.body}</span><strong>{String(item.created_at).slice(0, 10)}</strong></div>)}
       </div>
@@ -515,13 +539,20 @@ function RegisterMember({ api }) {
   };
   const [form, setForm] = useState(empty);
   const [saved, setSaved] = useState('');
+  const [error, setError] = useState('');
   const set = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
 
   async function submit(event) {
     event.preventDefault();
-    const member = await api.post('/members', form);
-    setSaved(`${member.first_name} ${member.last_name} registered as ${member.member_id}`);
-    setForm(empty);
+    setSaved('');
+    setError('');
+    try {
+      const member = await api.post('/members', form);
+      setSaved(`${member.first_name} ${member.last_name} registered as ${member.member_id}`);
+      setForm(empty);
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
   return (
@@ -555,29 +586,42 @@ function RegisterMember({ api }) {
         <Input label="Street Address" value={form.streetAddress} onChange={v => set('streetAddress', v)} />
         <Input label="Landmark" value={form.landmark} onChange={v => set('landmark', v)} />
       </FormSection>
-      {saved && <p className="rounded-lg bg-emerald-50 p-3 text-emerald-700">{saved}</p>}
+      {saved && <StatusMessage type="success" message={saved} />}
+      {error && <StatusMessage type="error" message={error} />}
       <button className="primary-button w-full sm:w-fit"><Plus size={20} /> Register Member</button>
     </form>
   );
 }
 
-function Attendance({ api }) {
+function Attendance({ api, user }) {
   const [members, setMembers] = useState([]);
   const [summary, setSummary] = useState(null);
   const [memberId, setMemberId] = useState('');
   const [serviceType, setServiceType] = useState('Sunday Service');
   const [method, setMethod] = useState('Manual Entry');
   const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const canCreate = canAccess(user, 'attendance:create');
   useEffect(() => {
-    api.get('/members').then(setMembers);
-    api.get('/attendance/dashboard').then(setSummary);
+    api.get('/members').then(setMembers).catch(err => setError(err.message));
+    api.get('/attendance/dashboard').then(setSummary).catch(err => setError(err.message));
   }, [api]);
 
   async function submit(event) {
     event.preventDefault();
-    await api.post('/attendance', { memberId, attendanceDate: new Date().toISOString().slice(0, 10), serviceType, status: 'Present', method });
-    setMessage('Attendance recorded.');
-    api.get('/attendance/dashboard').then(setSummary);
+    setError('');
+    setMessage('');
+    if (!memberId) {
+      setError('Choose a member before recording attendance.');
+      return;
+    }
+    try {
+      await api.post('/attendance', { memberId, attendanceDate: new Date().toISOString().slice(0, 10), serviceType, status: 'Present', method });
+      setMessage('Attendance recorded.');
+      api.get('/attendance/dashboard').then(setSummary);
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
   return (
@@ -595,8 +639,10 @@ function Attendance({ api }) {
         <Select label="Member" value={memberId} onChange={setMemberId} options={['', ...members.map(m => `${m.id}|${m.first_name} ${m.last_name} (${m.member_id})`)]} parseValue />
         <Select label="Service Type" value={serviceType} onChange={setServiceType} options={['Sunday Service', 'Midweek Service', 'Home Cell', 'Special Program']} />
         <Select label="Capture Method" value={method} onChange={setMethod} options={['Manual Entry', 'QR Code Scan', 'Mobile Check-In', 'Bulk Upload', 'Self-Service Kiosk', 'Home Cell Attendance', 'Special Event Attendance']} />
-        {message && <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-emerald-700">{message}</p>}
-        <button className="primary-button mt-4"><CalendarCheck size={20} /> Check In</button>
+        {message && <StatusMessage type="success" message={message} />}
+        {error && <StatusMessage type="error" message={error} />}
+        <button className="primary-button mt-4" disabled={!canCreate}><CalendarCheck size={20} /> Check In</button>
+        {!canCreate && <p className="mt-2 text-sm text-slate-500">You can view attendance, but your role cannot record check-ins.</p>}
       </form>
       <section className="panel">
         <h2 className="section-title">Attendance Capture Methods</h2>
@@ -629,18 +675,31 @@ function Followup({ api }) {
   const [dashboard, setDashboard] = useState(null);
   const [members, setMembers] = useState([]);
   const [feedback, setFeedback] = useState({ memberId: '', contactDate: new Date().toISOString().slice(0, 10), contactMethod: 'Phone Call', feedbackCategory: 'Care', notes: '', prayerRequest: '', status: 'Contacted' });
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
   useEffect(() => {
-    api.get('/followups/report').then(setReport);
-    api.get('/followups/dashboard').then(setDashboard);
-    api.get('/members').then(setMembers);
+    api.get('/followups/report').then(setReport).catch(err => setError(err.message));
+    api.get('/followups/dashboard').then(setDashboard).catch(err => setError(err.message));
+    api.get('/members').then(setMembers).catch(err => setError(err.message));
   }, [api]);
   const lists = report ? Object.entries(report) : [];
   const shareText = rows => encodeURIComponent(rows.slice(0, 6).map(member => `${member.name} - ${member.followupReason} - ${member.phone || member.whatsapp || ''}`).join('\n'));
   async function submitFeedback(event) {
     event.preventDefault();
-    await api.post('/followups/feedback', feedback);
-    setFeedback(prev => ({ ...prev, notes: '', prayerRequest: '' }));
-    api.get('/followups/dashboard').then(setDashboard);
+    setError('');
+    setMessage('');
+    if (!feedback.memberId) {
+      setError('Choose a member before submitting follow-up feedback.');
+      return;
+    }
+    try {
+      await api.post('/followups/feedback', feedback);
+      setFeedback(prev => ({ ...prev, notes: '', prayerRequest: '' }));
+      setMessage('Follow-up feedback submitted.');
+      api.get('/followups/dashboard').then(setDashboard);
+    } catch (err) {
+      setError(err.message);
+    }
   }
   return (
     <div className="grid gap-5">
@@ -663,6 +722,8 @@ function Followup({ api }) {
           <Input label="Notes" value={feedback.notes} onChange={notes => setFeedback(prev => ({ ...prev, notes }))} />
           <button className="primary-button self-end"><CheckSquare size={18} /> Submit Feedback</button>
         </form>
+        {message && <StatusMessage type="success" message={message} />}
+        {error && <StatusMessage type="error" message={error} />}
       </section>
       {lists.map(([key, members]) => (
         <section className="panel" key={key}>
@@ -688,49 +749,63 @@ function Followup({ api }) {
   );
 }
 
-function HomeCells({ api, onNavigate }) {
+function HomeCells({ api, user, onNavigate }) {
   const [cells, setCells] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
   const empty = { cellName: '', area: '', leaderName: '', assistantLeader: '', meetingAddress: '', meetingDay: 'Wednesday', meetingTime: '18:00' };
   const [form, setForm] = useState(empty);
   const [editingId, setEditingId] = useState(null);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const canWrite = canAccess(user, 'homecells:create');
+  const canUseAttendance = canAccess(user, ['attendance:read', 'attendance:create']);
+  const canUseReports = canAccess(user, 'reports:read');
   const set = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
   async function load() {
-    api.get('/home-cells').then(setCells);
-    api.get('/home-cells/suggestions').then(setSuggestions);
+    api.get('/home-cells').then(setCells).catch(err => setError(err.message));
+    api.get('/home-cells/suggestions').then(setSuggestions).catch(err => setError(err.message));
   }
   useEffect(() => {
     load();
   }, [api]);
   async function submit(event) {
     event.preventDefault();
-    if (editingId) await api.put(`/home-cells/${editingId}`, form);
-    else await api.post('/home-cells', form);
-    setForm(empty);
-    setEditingId(null);
-    load();
+    setError('');
+    setMessage('');
+    try {
+      if (editingId) await api.put(`/home-cells/${editingId}`, form);
+      else await api.post('/home-cells', form);
+      setForm(empty);
+      setEditingId(null);
+      setMessage(editingId ? 'Home cell updated.' : 'Home cell created.');
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
   }
   return (
     <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
       <section className="panel">
-        <div className="flex items-center justify-between gap-3"><h2 className="section-title">Home Cell Membership</h2><button className="secondary-button" onClick={() => { setForm(empty); setEditingId(null); }}><Plus size={18} /> Add Cell</button></div>
+        <div className="flex items-center justify-between gap-3"><h2 className="section-title">Home Cell Membership</h2>{canWrite && <button className="secondary-button" onClick={() => { setForm(empty); setEditingId(null); }}><Plus size={18} /> Add Cell</button>}</div>
+        {error && <StatusMessage type="error" message={error} />}
+        {message && <StatusMessage type="success" message={message} />}
         <div className="mt-4 grid gap-3">
           {cells.map(cell => <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800" key={cell.id}>
             <div className="flex items-center justify-between gap-3"><strong>{cell.cell_name}</strong><span>{cell.members_count} members</span></div>
             <p className="mt-1 text-sm text-slate-500">{cell.area} · {cell.leader_name} · {cell.assistant_leader || 'No assistant'} · {cell.meeting_day} {cell.meeting_time}</p>
             <p className="mt-1 text-sm text-slate-500">{cell.meeting_address}</p>
             <div className="mt-3 flex gap-2">
-              <button className="secondary-button" onClick={() => { setEditingId(cell.id); setForm({ cellName: cell.cell_name, area: cell.area, leaderName: cell.leader_name || '', assistantLeader: cell.assistant_leader || '', meetingAddress: cell.meeting_address || '', meetingDay: cell.meeting_day || 'Wednesday', meetingTime: cell.meeting_time || '18:00' }); }}><Edit size={17} /> Edit</button>
-              <button className="secondary-button" type="button" onClick={() => onNavigate('attendance')}><CalendarCheck size={17} /> Attendance</button>
-              <button className="secondary-button" type="button" onClick={() => onNavigate('reports')}><FileText size={17} /> Reports</button>
-              <button className="secondary-button danger" onClick={async () => { await api.delete(`/home-cells/${cell.id}`, {}); load(); }}><Trash2 size={17} /> Delete</button>
+              {canWrite && <button className="secondary-button" onClick={() => { setEditingId(cell.id); setForm({ cellName: cell.cell_name, area: cell.area, leaderName: cell.leader_name || '', assistantLeader: cell.assistant_leader || '', meetingAddress: cell.meeting_address || '', meetingDay: cell.meeting_day || 'Wednesday', meetingTime: cell.meeting_time || '18:00' }); }}><Edit size={17} /> Edit</button>}
+              {canUseAttendance && <button className="secondary-button" type="button" onClick={() => onNavigate('attendance')}><CalendarCheck size={17} /> Attendance</button>}
+              {canUseReports && <button className="secondary-button" type="button" onClick={() => onNavigate('reports')}><FileText size={17} /> Reports</button>}
+              {canWrite && <button className="secondary-button danger" onClick={async () => { await api.delete(`/home-cells/${cell.id}`, {}); load(); }}><Trash2 size={17} /> Delete</button>}
             </div>
           </div>)}
         </div>
       </section>
       <section className="panel">
         <h2 className="section-title">{editingId ? 'Edit Cell' : 'Add Cell'}</h2>
-        <form onSubmit={submit} className="mt-3 grid gap-3">
+        {canWrite ? <form onSubmit={submit} className="mt-3 grid gap-3">
           <Input label="Cell Name" value={form.cellName} onChange={v => set('cellName', v)} required />
           <Input label="Cell Address" value={form.meetingAddress} onChange={v => set('meetingAddress', v)} />
           <Input label="Area" value={form.area} onChange={v => set('area', v)} required />
@@ -739,7 +814,7 @@ function HomeCells({ api, onNavigate }) {
           <Input label="Cell Leader" value={form.leaderName} onChange={v => set('leaderName', v)} />
           <Input label="Assistant Leader" value={form.assistantLeader} onChange={v => set('assistantLeader', v)} />
           <button className="primary-button"><CheckSquare size={18} /> Save Cell</button>
-        </form>
+        </form> : <p className="mt-3 text-sm text-slate-500">You have view-only access to home cells.</p>}
         <h2 className="section-title mt-6">Cell Suggestions</h2>
         <div className="mt-4 grid gap-2">
           {suggestions.map(item => <div className="mini-row" key={item.area}><span>{item.area || 'Unknown area'}</span><strong>{item.members_without_cell}</strong></div>)}
@@ -1079,11 +1154,23 @@ function ExportShare({ api, scope, label }) {
 function SettingsView({ api }) {
   const [settings, setSettings] = useState(null);
   const [saved, setSaved] = useState(false);
-  useEffect(() => { api.get('/settings').then(data => setSettings(toCamel(data))); }, [api]);
+  const [error, setError] = useState('');
+  useEffect(() => { api.get('/settings').then(data => setSettings(toCamel(data))).catch(err => setError(err.message)); }, [api]);
+  if (!settings && error) return <section className="panel"><StatusMessage type="error" message={error} /></section>;
   if (!settings) return <section className="panel">Loading settings...</section>;
   const set = (key, value) => setSettings(prev => ({ ...prev, [key]: value }));
   return (
-    <form className="panel max-w-3xl" onSubmit={async e => { e.preventDefault(); await api.put('/settings', settings); setSaved(true); }}>
+    <form className="panel max-w-3xl" onSubmit={async e => {
+      e.preventDefault();
+      setSaved(false);
+      setError('');
+      try {
+        await api.put('/settings', settings);
+        setSaved(true);
+      } catch (err) {
+        setError(err.message);
+      }
+    }}>
       <h2 className="section-title">Church Branding & Follow-up Schedule</h2>
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
         <Input label="Church Name" value={settings.churchName} onChange={v => set('churchName', v)} />
@@ -1095,10 +1182,18 @@ function SettingsView({ api }) {
         <Select label="Follow-up Day" value={settings.followupDay || 'Sunday'} onChange={v => set('followupDay', v)} options={['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']} />
         <Input label="Follow-up Time" type="time" value={settings.followupTime || '18:00'} onChange={v => set('followupTime', v)} />
       </div>
-      {saved && <p className="mt-4 rounded-lg bg-emerald-50 p-3 text-emerald-700">Settings saved.</p>}
+      {saved && <StatusMessage type="success" message="Settings saved." />}
+      {error && <StatusMessage type="error" message={error} />}
       <button className="primary-button mt-5">Save Settings</button>
     </form>
   );
+}
+
+function StatusMessage({ type = 'success', message }) {
+  const className = type === 'error'
+    ? 'mt-3 rounded-lg bg-red-50 p-3 text-sm font-medium text-red-700 dark:bg-red-950 dark:text-red-200'
+    : 'mt-3 rounded-lg bg-emerald-50 p-3 text-sm font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200';
+  return <p className={className}>{message}</p>;
 }
 
 function FormSection({ title, children }) {
