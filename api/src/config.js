@@ -7,6 +7,7 @@ const apiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 dotenv.config({ path: path.join(apiRoot, '.env') });
 
 const defaultClientOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173'];
+const configuredClientOrigins = splitEnv(process.env.CLIENT_ORIGIN);
 
 export const port = process.env.PORT || 4000;
 export const databaseUrl = process.env.DATABASE_URL?.trim();
@@ -15,7 +16,7 @@ export const allowLocalDatabase = process.env.ALLOW_LOCAL_DATABASE === 'true';
 export const runStartupMigrations = process.env.RUN_STARTUP_MIGRATIONS !== 'false';
 export const allowedOrigins = unique([
   ...defaultClientOrigins,
-  ...splitEnv(process.env.CLIENT_ORIGIN)
+  ...configuredClientOrigins
 ]);
 
 export function validateDatabaseConfig() {
@@ -59,7 +60,12 @@ export function corsOrigin(origin, callback) {
     return;
   }
 
-  callback(null, false);
+  if (isCloudRuntime() && configuredClientOrigins.length === 0) {
+    callback(null, true);
+    return;
+  }
+
+  callback(new Error(`Origin ${origin} is not allowed by CORS`), false);
 }
 
 function splitEnv(value) {

@@ -11,6 +11,6 @@ function isLocalBrowser() {
 
 export const apiBaseUrl = normalizeUrl(import.meta.env.VITE_API_URL) || (isLocalBrowser() ? fallbackApiUrl : '');
 
-export const apiConfigError = apiBaseUrl
+export const apiConfigWarning = apiBaseUrl
   ? ''
-  : 'Missing VITE_API_URL. Set it in Vercel to your Render API URL, for example https://your-api.onrender.com/api, then redeploy.';
+  : 'Missing VITE_API_URL. Set it in production to your API URL, for example https://your-api.onrender.com/api, then redeploy. The interface is visible, but sign-in and data features need the API URL.';

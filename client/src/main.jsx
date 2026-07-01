@@ -33,8 +33,8 @@ import {
   Users
 } from 'lucide-react';
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { ConfigurationError, Login } from './components/AuthScreens';
-import { apiBaseUrl, apiConfigError } from './config';
+import { ApiSetupNotice, Login } from './components/AuthScreens';
+import { apiBaseUrl, apiConfigWarning } from './config';
 import { makeApi } from './services/api';
 import './styles.css';
 
@@ -50,16 +50,14 @@ function App() {
     localStorage.setItem('theme', dark ? 'dark' : 'light');
   }, [dark]);
 
-  if (apiConfigError) return <ConfigurationError message={apiConfigError} />;
-
-  if (!token || !user) return <Login apiUrl={API_URL} onLogin={(nextToken, nextUser) => {
+  if (!token || !user) return <Login apiUrl={API_URL} apiWarning={apiConfigWarning} onLogin={(nextToken, nextUser) => {
     localStorage.setItem('token', nextToken);
     localStorage.setItem('user', JSON.stringify(nextUser));
     setToken(nextToken);
     setUser(nextUser);
   }} />;
 
-  return <Shell token={token} user={user} dark={dark} setDark={setDark} onUserUpdate={nextUser => {
+  return <Shell token={token} user={user} dark={dark} setDark={setDark} apiWarning={apiConfigWarning} onUserUpdate={nextUser => {
     localStorage.setItem('user', JSON.stringify(nextUser));
     setUser(nextUser);
   }} onLogout={() => {
@@ -80,7 +78,7 @@ function readStoredUser() {
   }
 }
 
-function Shell({ token, user, dark, setDark, onUserUpdate, onLogout }) {
+function Shell({ token, user, dark, setDark, apiWarning, onUserUpdate, onLogout }) {
   const [view, setView] = useState('dashboard');
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -144,6 +142,7 @@ function Shell({ token, user, dark, setDark, onUserUpdate, onLogout }) {
           </div>
         </header>
         <div className="p-4 sm:p-6">
+          <ApiSetupNotice message={apiWarning} />
           {view === 'dashboard' && <Dashboard api={api} user={user} />}
           {view === 'members' && <Members api={api} user={user} />}
           {view === 'register' && <RegisterMember api={api} />}
@@ -174,9 +173,10 @@ function canAccess(user, permission) {
 function Brand({ api }) {
   const [settings, setSettings] = useState(null);
   useEffect(() => { api.get('/settings').then(setSettings).catch(() => {}); }, [api]);
+  const brandColor = settings?.brand_color || '#2563eb';
   return (
     <div className="flex items-center gap-3">
-      <div className="grid size-12 place-items-center rounded-lg bg-blue-600 text-white">
+      <div className="grid size-12 place-items-center rounded-lg text-white" style={{ backgroundColor: brandColor }}>
         {settings?.logo_url ? <img className="size-12 rounded-lg object-cover" src={settings.logo_url} alt="" /> : <Home />}
       </div>
       <div>
@@ -1155,37 +1155,90 @@ function SettingsView({ api }) {
   const [settings, setSettings] = useState(null);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
-  useEffect(() => { api.get('/settings').then(data => setSettings(toCamel(data))).catch(err => setError(err.message)); }, [api]);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    api.get('/settings')
+      .then(data => setSettings(toCamel(data)))
+      .catch(err => setError(err.message));
+  }, [api]);
   if (!settings && error) return <section className="panel"><StatusMessage type="error" message={error} /></section>;
   if (!settings) return <section className="panel">Loading settings...</section>;
   const set = (key, value) => setSettings(prev => ({ ...prev, [key]: value }));
   return (
-    <form className="panel max-w-3xl" onSubmit={async e => {
-      e.preventDefault();
-      setSaved(false);
-      setError('');
-      try {
-        await api.put('/settings', settings);
-        setSaved(true);
-      } catch (err) {
-        setError(err.message);
-      }
-    }}>
-      <h2 className="section-title">Church Branding & Follow-up Schedule</h2>
-      <div className="mt-5 grid gap-4 sm:grid-cols-2">
-        <Input label="Church Name" value={settings.churchName} onChange={v => set('churchName', v)} />
-        <Input label="Logo URL" value={settings.logoUrl || ''} onChange={v => set('logoUrl', v)} />
-        <Input label="Address" value={settings.address || ''} onChange={v => set('address', v)} />
-        <Input label="Email" value={settings.email || ''} onChange={v => set('email', v)} />
-        <Input label="Phone" value={settings.phone || ''} onChange={v => set('phone', v)} />
-        <Input label="Brand Color" type="color" value={settings.brandColor || '#2563eb'} onChange={v => set('brandColor', v)} />
-        <Select label="Follow-up Day" value={settings.followupDay || 'Sunday'} onChange={v => set('followupDay', v)} options={['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']} />
-        <Input label="Follow-up Time" type="time" value={settings.followupTime || '18:00'} onChange={v => set('followupTime', v)} />
+    <div className="grid gap-5 xl:grid-cols-[1fr_380px]">
+      <form className="panel" onSubmit={async e => {
+        e.preventDefault();
+        setSaved(false);
+        setError('');
+        setSaving(true);
+        try {
+          const updated = await api.put('/settings', settings);
+          setSettings(toCamel(updated));
+          setSaved(true);
+        } catch (err) {
+          setError(err.message);
+        } finally {
+          setSaving(false);
+        }
+      }}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="section-title">Church Profile</h2>
+            <p className="mt-1 text-sm text-slate-500">Set the public church identity, contact details, logo, brand color, and follow-up schedule used across the app.</p>
+          </div>
+          <span className="pill">Profile setup</span>
+        </div>
+
+        <FormSection title="Identity">
+          <Input label="Church Name" value={settings.churchName} onChange={v => set('churchName', v)} required />
+          <Input label="Logo URL" value={settings.logoUrl || ''} onChange={v => set('logoUrl', v)} />
+          <Input label="Brand Color" type="color" value={settings.brandColor || '#2563eb'} onChange={v => set('brandColor', v)} />
+        </FormSection>
+
+        <FormSection title="Contact Information">
+          <Input label="Address" value={settings.address || ''} onChange={v => set('address', v)} />
+          <Input label="Email" type="email" value={settings.email || ''} onChange={v => set('email', v)} />
+          <Input label="Phone" value={settings.phone || ''} onChange={v => set('phone', v)} />
+        </FormSection>
+
+        <FormSection title="Follow-up Schedule">
+          <Select label="Follow-up Day" value={settings.followupDay || 'Sunday'} onChange={v => set('followupDay', v)} options={['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']} />
+          <Input label="Follow-up Time" type="time" value={settings.followupTime || '18:00'} onChange={v => set('followupTime', v)} />
+        </FormSection>
+
+        {saved && <StatusMessage type="success" message="Church profile saved." />}
+        {error && <StatusMessage type="error" message={error} />}
+        <button className="primary-button mt-5" disabled={saving}><CheckSquare size={18} /> {saving ? 'Saving...' : 'Save Church Profile'}</button>
+      </form>
+
+      <ChurchProfilePreview settings={settings} />
+    </div>
+  );
+}
+
+function ChurchProfilePreview({ settings }) {
+  const brandColor = settings.brandColor || '#2563eb';
+  return (
+    <section className="panel">
+      <h2 className="section-title">Profile Preview</h2>
+      <div className="mt-5 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+        <div className="flex items-center gap-3">
+          <div className="grid size-16 place-items-center overflow-hidden rounded-lg text-white" style={{ backgroundColor: brandColor }}>
+            {settings.logoUrl ? <img className="h-full w-full object-cover" src={settings.logoUrl} alt="" /> : <Home size={28} />}
+          </div>
+          <div className="min-w-0">
+            <h3 className="break-words text-xl font-bold">{settings.churchName || 'Church Name'}</h3>
+            <p className="text-sm text-slate-500">Member Care Workspace</p>
+          </div>
+        </div>
+        <div className="mt-5 grid gap-2 text-sm">
+          <Info label="Address" value={settings.address} />
+          <Info label="Email" value={settings.email} />
+          <Info label="Phone" value={settings.phone} />
+          <Info label="Follow-up" value={`${settings.followupDay || 'Sunday'} ${settings.followupTime || '18:00'}`} />
+        </div>
       </div>
-      {saved && <StatusMessage type="success" message="Settings saved." />}
-      {error && <StatusMessage type="error" message={error} />}
-      <button className="primary-button mt-5">Save Settings</button>
-    </form>
+    </section>
   );
 }
 
@@ -1222,14 +1275,14 @@ function humanize(value) {
 
 function toCamel(row) {
   return {
-    churchName: row.church_name,
-    logoUrl: row.logo_url,
-    address: row.address,
-    email: row.email,
-    phone: row.phone,
-    brandColor: row.brand_color,
-    followupDay: row.followup_day,
-    followupTime: row.followup_time
+    churchName: row?.church_name || row?.churchName || 'Church Care',
+    logoUrl: row?.logo_url || row?.logoUrl || '',
+    address: row?.address || '',
+    email: row?.email || '',
+    phone: row?.phone || '',
+    brandColor: row?.brand_color || row?.brandColor || '#2563eb',
+    followupDay: row?.followup_day || row?.followupDay || 'Sunday',
+    followupTime: row?.followup_time || row?.followupTime || '18:00'
   };
 }
 

@@ -57,13 +57,24 @@ router.get('/settings', wrap(async (_req, res) => {
 
 router.put('/settings', requirePermission('settings:update'), wrap(async (req, res) => {
   const s = req.body;
+  if (!s?.churchName?.trim()) return res.status(400).json({ message: 'Church name is required' });
   await query(
     `UPDATE church_settings SET church_name=$1, logo_url=$2, address=$3, email=$4, phone=$5,
       brand_color=$6, followup_day=$7, followup_time=$8 WHERE id='main'`,
-    [s.churchName, s.logoUrl, s.address, s.email, s.phone, s.brandColor, s.followupDay, s.followupTime]
+    [
+      s.churchName.trim(),
+      s.logoUrl || '',
+      s.address || '',
+      s.email || '',
+      s.phone || '',
+      s.brandColor || '#2563eb',
+      s.followupDay || 'Sunday',
+      s.followupTime || '18:00'
+    ]
   );
   await audit(req, 'updated settings', 'church_settings', 'main', s);
-  res.json({ ok: true });
+  const rows = await query('SELECT * FROM church_settings WHERE id = $1', ['main']);
+  res.json(rows[0]);
 }));
 
 router.get('/dashboard', wrap(async (req, res) => {

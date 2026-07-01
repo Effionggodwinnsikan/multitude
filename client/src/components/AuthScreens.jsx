@@ -1,8 +1,8 @@
-import { Eye, EyeOff, Settings, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Eye, EyeOff, Settings, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 import { loginWithPassword } from '../services/api';
 
-export function Login({ apiUrl, onLogin }) {
+export function Login({ apiUrl, apiWarning, onLogin }) {
   const [email, setEmail] = useState('admin@gracecity.test');
   const [password, setPassword] = useState('password123');
   const [showPassword, setShowPassword] = useState(false);
@@ -12,6 +12,10 @@ export function Login({ apiUrl, onLogin }) {
   async function submit(event) {
     event.preventDefault();
     setError('');
+    if (!apiUrl) {
+      setError(apiWarning || 'The API URL is not configured yet.');
+      return;
+    }
     setLoading(true);
     try {
       const data = await loginWithPassword(apiUrl, { email, password });
@@ -33,6 +37,7 @@ export function Login({ apiUrl, onLogin }) {
             <p className="text-sm text-slate-500">Secure staff login</p>
           </div>
         </div>
+        {apiWarning && <p className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-100">{apiWarning}</p>}
         <label className="field-label">Email</label>
         <input className="input" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} />
         <label className="field-label">Password</label>
@@ -48,7 +53,7 @@ export function Login({ apiUrl, onLogin }) {
           </button>
         </div>
         {error && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-        <button className="primary-button mt-5 w-full" disabled={loading}>{loading ? 'Signing in...' : 'Sign in'}</button>
+        <button className="primary-button mt-5 w-full" disabled={loading || !apiUrl}>{loading ? 'Signing in...' : 'Sign in'}</button>
       </form>
     </div>
   );
@@ -67,6 +72,16 @@ export function ConfigurationError({ message }) {
         </div>
         <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-100">{message}</p>
       </section>
+    </div>
+  );
+}
+
+export function ApiSetupNotice({ message }) {
+  if (!message) return null;
+  return (
+    <div className="mb-4 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+      <AlertTriangle className="mt-0.5 shrink-0" size={18} />
+      <span>{message}</span>
     </div>
   );
 }
