@@ -39,32 +39,74 @@ import { makeApi } from './services/api';
 import './styles.css';
 
 const API_URL = apiBaseUrl;
+const DEFAULT_BRAND_COLOR = '#2563eb';
+
+const ATTENDANCE_METHODS = {
+  'Manual Entry': {
+    icon: CheckSquare,
+    description: 'A staff member chooses a member and records their attendance directly from this screen. Use it for desk check-ins or quick corrections.'
+  },
+  'QR Code Scan': {
+    icon: QrCode,
+    description: 'Members scan a church QR code or a staff member scans member codes, then the attendance entry is saved for the selected service.'
+  },
+  'Mobile Check-In': {
+    icon: Smartphone,
+    description: 'A phone or tablet is used at the door or by a team member to mark people present as they arrive.'
+  },
+  'Bulk Upload': {
+    icon: Upload,
+    description: 'Attendance is prepared in a spreadsheet or exported list and uploaded after service for many members at once.'
+  },
+  'Self-Service Kiosk': {
+    icon: Users,
+    description: 'Members check themselves in on a shared device at church, usually by searching their name or member ID.'
+  },
+  'Home Cell Attendance': {
+    icon: Network,
+    description: 'Home cell leaders record attendance for members who attended a cell meeting instead of a main service.'
+  },
+  'Special Event Attendance': {
+    icon: FileText,
+    description: 'Use this for conferences, trainings, outreach, and other events that should be tracked separately from normal services.'
+  }
+};
+
+const ATTENDANCE_METHOD_OPTIONS = Object.keys(ATTENDANCE_METHODS);
 
 function App() {
   const [token, setToken] = useState(() => localStorage.getItem('token'));
   const [user, setUser] = useState(() => readStoredUser());
   const [dark, setDark] = useState(localStorage.getItem('theme') === 'dark');
+  const [authNotice, setAuthNotice] = useState('');
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark);
     localStorage.setItem('theme', dark ? 'dark' : 'light');
   }, [dark]);
 
-  if (!token || !user) return <Login apiUrl={API_URL} apiWarning={apiConfigWarning} onLogin={(nextToken, nextUser) => {
+  function storeSession(nextToken, nextUser) {
     localStorage.setItem('token', nextToken);
     localStorage.setItem('user', JSON.stringify(nextUser));
+    setAuthNotice('');
     setToken(nextToken);
     setUser(nextUser);
-  }} />;
+  }
+
+  function clearSession(message = '') {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setAuthNotice(message);
+    setToken(null);
+    setUser(null);
+  }
+
+  if (!token || !user) return <Login apiUrl={API_URL} apiWarning={apiConfigWarning || authNotice} onLogin={storeSession} />;
 
   return <Shell token={token} user={user} dark={dark} setDark={setDark} apiWarning={apiConfigWarning} onUserUpdate={nextUser => {
     localStorage.setItem('user', JSON.stringify(nextUser));
     setUser(nextUser);
-  }} onLogout={() => {
-    localStorage.clear();
-    setToken(null);
-    setUser(null);
-  }} />;
+  }} onAuthExpired={clearSession} onLogout={() => clearSession()} />;
 }
 
 function readStoredUser() {
@@ -78,11 +120,21 @@ function readStoredUser() {
   }
 }
 
-function Shell({ token, user, dark, setDark, apiWarning, onUserUpdate, onLogout }) {
+function hexToRgb(hex) {
+  const normalized = /^#[0-9a-f]{6}$/i.test(hex || '') ? hex.slice(1) : DEFAULT_BRAND_COLOR.slice(1);
+  return {
+    r: parseInt(normalized.slice(0, 2), 16),
+    g: parseInt(normalized.slice(2, 4), 16),
+    b: parseInt(normalized.slice(4, 6), 16)
+  };
+}
+
+function Shell({ token, user, dark, setDark, apiWarning, onUserUpdate, onAuthExpired, onLogout }) {
   const [view, setView] = useState('dashboard');
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const api = useMemo(() => makeApi(token, API_URL), [token]);
+  const [churchSettings, setChurchSettings] = useState(null);
+  const api = useMemo(() => makeApi(token, API_URL, onAuthExpired), [token, onAuthExpired]);
 
   const nav = [
     ['dashboard', Home, 'Dashboard'],
@@ -102,11 +154,22 @@ function Shell({ token, user, dark, setDark, apiWarning, onUserUpdate, onLogout 
     if (!nav.some(([id]) => id === view)) setView('dashboard');
   }, [nav, view]);
 
+  useEffect(() => {
+    api.get('/settings').then(setChurchSettings).catch(() => {});
+  }, [api]);
+
+  const brandColor = churchSettings?.brand_color || churchSettings?.brandColor || DEFAULT_BRAND_COLOR;
+  const brandRgb = hexToRgb(brandColor);
+  const brandStyle = {
+    '--brand-color': brandColor,
+    '--brand-rgb': `${brandRgb.r} ${brandRgb.g} ${brandRgb.b}`
+  };
+
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
+    <div className="min-h-screen bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-slate-100" style={brandStyle}>
       {mobileOpen && <button className="fixed inset-0 z-30 bg-slate-950/40 lg:hidden" aria-label="Close menu" onClick={() => setMobileOpen(false)} />}
       <aside className={`fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-slate-200 bg-white p-4 transition dark:border-slate-800 dark:bg-slate-900 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}>
-        <Brand api={api} />
+        <Brand settings={churchSettings} />
         <nav className="mt-6 grid flex-1 content-start gap-2 overflow-y-auto pb-4">
           {nav.map(([id, Icon, label]) => (
             <button key={id} onClick={() => { setView(id); setMobileOpen(false); }} className={`nav-button ${view === id ? 'nav-active' : ''}`}>
@@ -114,7 +177,7 @@ function Shell({ token, user, dark, setDark, apiWarning, onUserUpdate, onLogout 
             </button>
           ))}
         </nav>
-        <button className="rounded-lg border border-slate-200 p-3 text-left text-sm transition hover:border-blue-300 hover:bg-blue-50 dark:border-slate-800 dark:hover:border-blue-700 dark:hover:bg-blue-950/50" type="button" onClick={() => setProfileOpen(true)}>
+        <button className="profile-button" type="button" onClick={() => setProfileOpen(true)}>
           <div className="flex items-center gap-3">
             <Avatar name={user.fullName} src={user.profileImageUrl} size="md" />
             <div>
@@ -143,7 +206,7 @@ function Shell({ token, user, dark, setDark, apiWarning, onUserUpdate, onLogout 
         </header>
         <div className="p-4 sm:p-6">
           <ApiSetupNotice message={apiWarning} />
-          {view === 'dashboard' && <Dashboard api={api} user={user} />}
+          {view === 'dashboard' && <Dashboard api={api} user={user} brandColor={brandColor} />}
           {view === 'members' && <Members api={api} user={user} />}
           {view === 'register' && <RegisterMember api={api} />}
           {view === 'attendance' && <Attendance api={api} user={user} />}
@@ -153,7 +216,7 @@ function Shell({ token, user, dark, setDark, apiWarning, onUserUpdate, onLogout 
           {view === 'notifications' && <Notifications api={api} />}
           {view === 'reports' && <Reports api={api} />}
           {view === 'admin' && <AdminUsers api={api} />}
-          {view === 'settings' && <SettingsView api={api} />}
+          {view === 'settings' && <SettingsView api={api} initialSettings={churchSettings} onSettingsChange={setChurchSettings} />}
         </div>
       </main>
       {profileOpen && <ProfileModal api={api} user={user} onClose={() => setProfileOpen(false)} onSaved={user => { onUserUpdate(user); setProfileOpen(false); }} />}
@@ -170,17 +233,17 @@ function canAccess(user, permission) {
   return permissions.includes(permission);
 }
 
-function Brand({ api }) {
-  const [settings, setSettings] = useState(null);
-  useEffect(() => { api.get('/settings').then(setSettings).catch(() => {}); }, [api]);
-  const brandColor = settings?.brand_color || '#2563eb';
+function Brand({ settings }) {
+  const brandColor = settings?.brand_color || settings?.brandColor || DEFAULT_BRAND_COLOR;
+  const logoUrl = settings?.logo_url || settings?.logoUrl;
+  const churchName = settings?.church_name || settings?.churchName || 'Church Care';
   return (
     <div className="flex items-center gap-3">
       <div className="grid size-12 place-items-center rounded-lg text-white" style={{ backgroundColor: brandColor }}>
-        {settings?.logo_url ? <img className="size-12 rounded-lg object-cover" src={settings.logo_url} alt="" /> : <Home />}
+        {logoUrl ? <img className="size-12 rounded-lg object-cover" src={logoUrl} alt="" /> : <Home />}
       </div>
       <div>
-        <div className="font-bold leading-tight">{settings?.church_name || 'Church Care'}</div>
+        <div className="font-bold leading-tight">{churchName}</div>
         <div className="text-xs text-slate-500">Member Management</div>
       </div>
     </div>
@@ -196,7 +259,7 @@ function Avatar({ name, src, size = 'lg' }) {
     .join('') || 'U';
   const className = size === 'md' ? 'size-11 text-sm' : 'size-16 text-lg';
   return (
-    <div className={`grid shrink-0 place-items-center overflow-hidden rounded-lg bg-blue-600 font-bold text-white ${className}`}>
+    <div className={`grid shrink-0 place-items-center overflow-hidden rounded-lg font-bold text-white ${className}`} style={{ backgroundColor: 'rgb(var(--brand-rgb))' }}>
       {src ? <img className="h-full w-full object-cover" src={src} alt="" /> : fallback}
     </div>
   );
@@ -239,7 +302,7 @@ function ProfileModal({ api, user, onClose, onSaved }) {
   );
 }
 
-function Dashboard({ api, user }) {
+function Dashboard({ api, user, brandColor }) {
   const [stats, setStats] = useState(null);
   const [graphs, setGraphs] = useState(null);
   const [filter, setFilter] = useState({ type: 'this_month' });
@@ -289,7 +352,7 @@ function Dashboard({ api, user }) {
           <ExportShare api={api} scope="entire_report" />
         </div>
         <div className="grid gap-5 xl:grid-cols-2">
-          <MetricChart title="Attendance Trend by Month" data={graphs?.attendanceTrend || []} color="#2563eb" />
+          <MetricChart title="Attendance Trend by Month" data={graphs?.attendanceTrend || []} color={brandColor} />
           <MetricChart title="Membership Growth" data={graphs?.membershipGrowth || []} color="#0f766e" />
           <MetricChart title="Visitors vs Returning Members" data={graphs?.visitorsVsReturningMembers || []} color="#7c3aed" />
           <MetricChart title="Home Cell Growth" data={graphs?.homeCellGrowth || []} color="#dc2626" />
@@ -312,7 +375,7 @@ function StatCard({ label, value, onClick }) {
     );
   }
   return (
-    <button onClick={onClick} className={`${className} hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-sm focus:outline-none focus:ring-4 focus:ring-blue-100 dark:hover:border-blue-700 dark:focus:ring-blue-950`}>
+    <button onClick={onClick} className={`${className} stat-card-button`}>
       <p className="text-sm font-medium text-slate-500">{label}</p>
       <p className="mt-2 text-3xl font-bold leading-none">{value}</p>
     </button>
@@ -638,7 +701,8 @@ function Attendance({ api, user }) {
         <h2 className="section-title">Manual Check-in</h2>
         <Select label="Member" value={memberId} onChange={setMemberId} options={['', ...members.map(m => `${m.id}|${m.first_name} ${m.last_name} (${m.member_id})`)]} parseValue />
         <Select label="Service Type" value={serviceType} onChange={setServiceType} options={['Sunday Service', 'Midweek Service', 'Home Cell', 'Special Program']} />
-        <Select label="Capture Method" value={method} onChange={setMethod} options={['Manual Entry', 'QR Code Scan', 'Mobile Check-In', 'Bulk Upload', 'Self-Service Kiosk', 'Home Cell Attendance', 'Special Event Attendance']} />
+        <Select label="Capture Method" value={method} onChange={setMethod} options={ATTENDANCE_METHOD_OPTIONS} />
+        <MethodDescription method={method} />
         {message && <StatusMessage type="success" message={message} />}
         {error && <StatusMessage type="error" message={error} />}
         <button className="primary-button mt-4" disabled={!canCreate}><CalendarCheck size={20} /> Check In</button>
@@ -647,10 +711,9 @@ function Attendance({ api, user }) {
       <section className="panel">
         <h2 className="section-title">Attendance Capture Methods</h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          {[
-            [Upload, 'Bulk Upload'], [QrCode, 'QR Code Scan'], [Smartphone, 'Mobile Check-In'],
-            [Users, 'Self-Service Kiosk'], [Network, 'Home Cell Attendance'], [FileText, 'Special Event Attendance']
-          ].map(([Icon, label]) => (
+          {ATTENDANCE_METHOD_OPTIONS.filter(label => label !== 'Manual Entry').map(label => {
+            const Icon = ATTENDANCE_METHODS[label].icon;
+            return (
             <button
               className={`secondary-button ${method === label ? 'selected' : ''}`}
               key={label}
@@ -662,9 +725,25 @@ function Attendance({ api, user }) {
             >
               <Icon size={18} /> {label}
             </button>
-          ))}
+            );
+          })}
         </div>
+        <MethodDescription method={method} />
       </section>
+      </div>
+    </div>
+  );
+}
+
+function MethodDescription({ method }) {
+  const selectedMethod = ATTENDANCE_METHODS[method] || ATTENDANCE_METHODS['Manual Entry'];
+  const Icon = selectedMethod.icon;
+  return (
+    <div className="method-description">
+      <Icon size={18} />
+      <div>
+        <strong>{method}</strong>
+        <p>{selectedMethod.description}</p>
       </div>
     </div>
   );
@@ -739,7 +818,7 @@ function Followup({ api }) {
             {members.slice(0, 6).map(member => (
               <div className="mini-row" key={`${key}-${member.id}`}>
                 <span>{member.name} · {member.area} · {member.followupReason}</span>
-                <a className="text-blue-600" href={member.whatsappUrl} target="_blank" rel="noreferrer">WhatsApp</a>
+                <a className="brand-link" href={member.whatsappUrl} target="_blank" rel="noreferrer">WhatsApp</a>
               </div>
             ))}
           </div>
@@ -865,7 +944,7 @@ function Celebrations({ api }) {
         <div className="mt-3 flex flex-wrap gap-2">
           {(data?.occasionTypes || ['All Occasions', 'Birthday', 'Wedding Anniversary', 'Membership Anniversary', 'Baptism Anniversary', 'Worker Anniversary', 'Ordination Anniversary']).map(item => (
             <button
-              className={`pill transition hover:border-blue-300 hover:text-blue-700 dark:hover:border-blue-700 ${occasionType === item ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-200' : ''}`}
+              className={`pill brand-filter-pill ${occasionType === item ? 'selected' : ''}`}
               key={item}
               type="button"
               onClick={() => setOccasionType(item)}
@@ -1151,19 +1230,28 @@ function ExportShare({ api, scope, label }) {
   );
 }
 
-function SettingsView({ api }) {
-  const [settings, setSettings] = useState(null);
+function SettingsView({ api, initialSettings, onSettingsChange }) {
+  const [settings, setSettings] = useState(() => initialSettings ? toCamel(initialSettings) : null);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     api.get('/settings')
-      .then(data => setSettings(toCamel(data)))
+      .then(data => {
+        setSettings(toCamel(data));
+        onSettingsChange?.(data);
+      })
       .catch(err => setError(err.message));
-  }, [api]);
+  }, [api, onSettingsChange]);
   if (!settings && error) return <section className="panel"><StatusMessage type="error" message={error} /></section>;
   if (!settings) return <section className="panel">Loading settings...</section>;
-  const set = (key, value) => setSettings(prev => ({ ...prev, [key]: value }));
+  const set = (key, value) => {
+    setSettings(prev => {
+      const next = { ...prev, [key]: value };
+      if (key === 'brandColor') onSettingsChange?.({ ...next, brand_color: value });
+      return next;
+    });
+  };
   return (
     <div className="grid gap-5 xl:grid-cols-[1fr_380px]">
       <form className="panel" onSubmit={async e => {
@@ -1174,6 +1262,7 @@ function SettingsView({ api }) {
         try {
           const updated = await api.put('/settings', settings);
           setSettings(toCamel(updated));
+          onSettingsChange?.(updated);
           setSaved(true);
         } catch (err) {
           setError(err.message);
@@ -1192,7 +1281,7 @@ function SettingsView({ api }) {
         <FormSection title="Identity">
           <Input label="Church Name" value={settings.churchName} onChange={v => set('churchName', v)} required />
           <Input label="Logo URL" value={settings.logoUrl || ''} onChange={v => set('logoUrl', v)} />
-          <Input label="Brand Color" type="color" value={settings.brandColor || '#2563eb'} onChange={v => set('brandColor', v)} />
+          <Input label="Brand Color" type="color" value={settings.brandColor || DEFAULT_BRAND_COLOR} onChange={v => set('brandColor', v)} />
         </FormSection>
 
         <FormSection title="Contact Information">
@@ -1217,7 +1306,7 @@ function SettingsView({ api }) {
 }
 
 function ChurchProfilePreview({ settings }) {
-  const brandColor = settings.brandColor || '#2563eb';
+  const brandColor = settings.brandColor || DEFAULT_BRAND_COLOR;
   return (
     <section className="panel">
       <h2 className="section-title">Profile Preview</h2>
@@ -1280,7 +1369,7 @@ function toCamel(row) {
     address: row?.address || '',
     email: row?.email || '',
     phone: row?.phone || '',
-    brandColor: row?.brand_color || row?.brandColor || '#2563eb',
+    brandColor: row?.brand_color || row?.brandColor || DEFAULT_BRAND_COLOR,
     followupDay: row?.followup_day || row?.followupDay || 'Sunday',
     followupTime: row?.followup_time || row?.followupTime || '18:00'
   };

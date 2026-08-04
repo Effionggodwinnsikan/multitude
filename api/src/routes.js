@@ -2,6 +2,7 @@ import express from 'express';
 import { v4 as uuid } from 'uuid';
 import { audit, login, requireAuth, requirePermission } from './auth.js';
 import { query } from './db.js';
+import { registerChurchAccount } from './features/churches/churchRegistrationService.js';
 import { adminRouter } from './routes/adminRoutes.js';
 import {
   addMemberNote,
@@ -33,6 +34,14 @@ export const router = express.Router();
 const wrap = handler => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 
 router.post('/auth/login', login);
+router.post('/auth/register-church', wrap(async (req, res) => {
+  try {
+    res.status(201).json(await registerChurchAccount(req.body));
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ message: error.message });
+    throw error;
+  }
+}));
 
 router.use(requireAuth);
 router.use('/admin', adminRouter);

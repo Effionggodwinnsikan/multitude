@@ -48,8 +48,9 @@ export function requireAuth(req, res, next) {
   try {
     req.user = jwt.verify(token, jwtSecret);
     next();
-  } catch {
-    res.status(401).json({ message: 'Invalid token' });
+  } catch (error) {
+    const message = error.name === 'TokenExpiredError' ? 'Session expired. Please sign in again.' : 'Invalid token. Please sign in again.';
+    res.status(401).json({ message });
   }
 }
 

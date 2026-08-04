@@ -1,13 +1,43 @@
-import { AlertTriangle, Eye, EyeOff, Settings, ShieldCheck } from 'lucide-react';
-import { useState } from 'react';
-import { loginWithPassword } from '../services/api';
+import { AlertTriangle, Building2, CheckSquare, Eye, EyeOff, Settings, ShieldCheck } from 'lucide-react';
+import React, { useState } from 'react';
+import { loginWithPassword, registerChurchAccount } from '../services/api';
+
+const DEFAULT_BRAND_COLOR = '#2563eb';
+
+function hexToRgb(hex) {
+  const normalized = /^#[0-9a-f]{6}$/i.test(hex || '') ? hex.slice(1) : DEFAULT_BRAND_COLOR.slice(1);
+  return {
+    r: parseInt(normalized.slice(0, 2), 16),
+    g: parseInt(normalized.slice(2, 4), 16),
+    b: parseInt(normalized.slice(4, 6), 16)
+  };
+}
 
 export function Login({ apiUrl, apiWarning, onLogin }) {
+  const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('admin@gracecity.test');
   const [password, setPassword] = useState('password123');
+  const [churchForm, setChurchForm] = useState({
+    churchName: '',
+    logoUrl: '',
+    address: '',
+    email: '',
+    phone: '',
+    brandColor: '#2563eb',
+    adminName: '',
+    adminEmail: '',
+    password: ''
+  });
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const isSignup = mode === 'signup';
+  const activeBrandColor = isSignup ? churchForm.brandColor : DEFAULT_BRAND_COLOR;
+  const brandRgb = hexToRgb(activeBrandColor);
+  const brandStyle = {
+    '--brand-color': activeBrandColor,
+    '--brand-rgb': `${brandRgb.r} ${brandRgb.g} ${brandRgb.b}`
+  };
 
   async function submit(event) {
     event.preventDefault();
@@ -18,7 +48,9 @@ export function Login({ apiUrl, apiWarning, onLogin }) {
     }
     setLoading(true);
     try {
-      const data = await loginWithPassword(apiUrl, { email, password });
+      const data = isSignup
+        ? await registerChurchAccount(apiUrl, churchForm)
+        : await loginWithPassword(apiUrl, { email, password });
       onLogin(data.token, data.user);
     } catch (err) {
       setError(err.message);
@@ -27,34 +59,82 @@ export function Login({ apiUrl, apiWarning, onLogin }) {
     }
   }
 
+  function setChurchField(key, value) {
+    setChurchForm(prev => ({ ...prev, [key]: value }));
+  }
+
   return (
-    <div className="grid min-h-screen place-items-center bg-slate-100 p-4 dark:bg-slate-950">
-      <form onSubmit={submit} className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <div className="grid min-h-screen place-items-center bg-slate-100 p-4 dark:bg-slate-950" style={brandStyle}>
+      <form onSubmit={submit} className="w-full max-w-3xl rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="mb-6 flex items-center gap-3">
-          <div className="grid size-12 place-items-center rounded-lg bg-blue-600 text-white"><ShieldCheck /></div>
+          <div className="grid size-12 place-items-center rounded-lg text-white" style={{ backgroundColor: 'rgb(var(--brand-rgb))' }}>{isSignup ? <Building2 /> : <ShieldCheck />}</div>
           <div>
-            <h1 className="text-2xl font-bold">Church Member Care</h1>
-            <p className="text-sm text-slate-500">Secure staff login</p>
+            <h1 className="text-2xl font-bold">{isSignup ? 'Create Church Workspace' : 'Church Member Care'}</h1>
+            <p className="text-sm text-slate-500">{isSignup ? 'Set up the church profile and first admin account.' : 'Secure staff login'}</p>
           </div>
         </div>
         {apiWarning && <p className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-100">{apiWarning}</p>}
-        <label className="field-label">Email</label>
-        <input className="input" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} />
-        <label className="field-label">Password</label>
-        <div className="relative">
-          <input className="input pr-12" type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} />
-          <button
-            className="absolute right-2 top-1/2 grid size-9 -translate-y-1/2 place-items-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white"
-            type="button"
-            aria-label={showPassword ? 'Hide password' : 'Show password'}
-            onClick={() => setShowPassword(value => !value)}
-          >
-            {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-          </button>
+
+        <div className="mb-5 grid grid-cols-2 rounded-lg bg-slate-100 p-1 dark:bg-slate-950">
+          <button className={`auth-tab ${!isSignup ? 'selected' : ''}`} type="button" onClick={() => { setMode('login'); setError(''); }}>Sign in</button>
+          <button className={`auth-tab ${isSignup ? 'selected' : ''}`} type="button" onClick={() => { setMode('signup'); setError(''); }}>Create account</button>
         </div>
+
+        {isSignup ? (
+          <div className="grid gap-4 md:grid-cols-2">
+            <AuthInput label="Church Name" value={churchForm.churchName} onChange={value => setChurchField('churchName', value)} required />
+            <AuthInput label="Logo URL" value={churchForm.logoUrl} onChange={value => setChurchField('logoUrl', value)} />
+            <AuthInput label="Address" value={churchForm.address} onChange={value => setChurchField('address', value)} required />
+            <AuthInput label="Church Email" type="email" value={churchForm.email} onChange={value => setChurchField('email', value)} />
+            <AuthInput label="Phone" value={churchForm.phone} onChange={value => setChurchField('phone', value)} />
+            <AuthInput label="Brand Color" type="color" value={churchForm.brandColor} onChange={value => setChurchField('brandColor', value)} />
+            <AuthInput label="Admin Name" value={churchForm.adminName} onChange={value => setChurchField('adminName', value)} required />
+            <AuthInput label="Admin Email" type="email" value={churchForm.adminEmail} onChange={value => setChurchField('adminEmail', value)} required />
+            <label className="md:col-span-2">
+              <span className="field-label">Password</span>
+              <PasswordField value={churchForm.password} autoComplete="new-password" showPassword={showPassword} setShowPassword={setShowPassword} onChange={value => setChurchField('password', value)} />
+            </label>
+          </div>
+        ) : (
+          <>
+            <AuthInput label="Email" type="email" autoComplete="email" value={email} onChange={setEmail} />
+            <label>
+              <span className="field-label">Password</span>
+              <PasswordField value={password} autoComplete="current-password" showPassword={showPassword} setShowPassword={setShowPassword} onChange={setPassword} />
+            </label>
+          </>
+        )}
         {error && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-        <button className="primary-button mt-5 w-full" disabled={loading || !apiUrl}>{loading ? 'Signing in...' : 'Sign in'}</button>
+        <button className="primary-button mt-5 w-full" disabled={loading || !apiUrl}>
+          {isSignup ? <CheckSquare size={18} /> : null}
+          {loading ? (isSignup ? 'Creating account...' : 'Signing in...') : (isSignup ? 'Create Church Account' : 'Sign in')}
+        </button>
       </form>
+    </div>
+  );
+}
+
+function AuthInput({ label, value, onChange, type = 'text', required, autoComplete }) {
+  return (
+    <label>
+      <span className="field-label">{label}</span>
+      <input className="input" type={type} autoComplete={autoComplete} value={value || ''} required={required} onChange={event => onChange(event.target.value)} />
+    </label>
+  );
+}
+
+function PasswordField({ value, onChange, showPassword, setShowPassword, autoComplete }) {
+  return (
+    <div className="relative">
+      <input className="input pr-12" type={showPassword ? 'text' : 'password'} autoComplete={autoComplete} value={value} onChange={event => onChange(event.target.value)} />
+      <button
+        className="absolute right-2 top-1/2 grid size-9 -translate-y-1/2 place-items-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white"
+        type="button"
+        aria-label={showPassword ? 'Hide password' : 'Show password'}
+        onClick={() => setShowPassword(value => !value)}
+      >
+        {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+      </button>
     </div>
   );
 }
