@@ -5,20 +5,21 @@ import { getOne, query } from './db.js';
 const jwtSecret = process.env.JWT_SECRET || 'development-secret-change-me';
 
 export async function login(req, res) {
-  const { email, password } = req.body || {};
-  if (!email || !password) {
-    return res.status(400).json({ message: 'Email and password are required' });
+  const identifier = String(req.body?.identifier || req.body?.email || '').trim().toLowerCase();
+  const { password } = req.body || {};
+  if (!identifier || !password) {
+    return res.status(400).json({ message: 'Username and password are required' });
   }
 
   const user = await getOne(
     `SELECT users.*, roles.name as role_name, roles.permissions
      FROM users LEFT JOIN roles ON roles.id = users.role_id
-     WHERE lower(users.email) = $1`,
-    [String(email).trim().toLowerCase()]
+     WHERE lower(users.email) = $1 OR lower(users.full_name) = $1`,
+    [identifier]
   );
 
   if (!user || !user.active || !(await bcrypt.compare(password, user.password_hash))) {
-    return res.status(401).json({ message: 'Invalid email or password' });
+    return res.status(401).json({ message: 'Invalid username or password' });
   }
 
   const token = jwt.sign(

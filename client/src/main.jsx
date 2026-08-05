@@ -40,6 +40,7 @@ import './styles.css';
 
 const API_URL = apiBaseUrl;
 const DEFAULT_BRAND_COLOR = '#2563eb';
+const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 
 const ATTENDANCE_METHODS = {
   'Manual Entry': {
@@ -293,7 +294,7 @@ function ProfileModal({ api, user, onClose, onSaved }) {
         </div>
         <div className="grid gap-3">
           <Input label="Full Name" value={form.fullName} onChange={fullName => setForm(prev => ({ ...prev, fullName }))} required />
-          <Input label="Profile Image URL" value={form.profileImageUrl} onChange={profileImageUrl => setForm(prev => ({ ...prev, profileImageUrl }))} />
+          <ImageUpload label="Profile Image" value={form.profileImageUrl} onChange={profileImageUrl => setForm(prev => ({ ...prev, profileImageUrl }))} onRemove={() => setForm(prev => ({ ...prev, profileImageUrl: '' }))} onError={setError} />
         </div>
         {error && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
         <button className="primary-button mt-5"><CheckSquare size={18} /> Save Profile</button>
@@ -554,6 +555,7 @@ function MemberEditModal({ api, member, onClose, onSaved }) {
     localGovernment: member.local_government || '', area: member.area || '', streetAddress: member.street_address || '',
     landmark: member.landmark || '', membershipStatus: member.membership_status || 'Active'
   });
+  const [error, setError] = useState('');
   const set = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4">
@@ -565,7 +567,7 @@ function MemberEditModal({ api, member, onClose, onSaved }) {
           <Input label="Last Name" value={form.lastName} onChange={v => set('lastName', v)} required />
           <Input label="Phone Number" value={form.phone} onChange={v => set('phone', v)} required />
           <Input label="WhatsApp Number" value={form.whatsapp} onChange={v => set('whatsapp', v)} />
-          <Input label="Profile Image URL" value={form.photoUrl} onChange={v => set('photoUrl', v)} />
+          <ImageUpload label="Profile Image" value={form.photoUrl} onChange={v => set('photoUrl', v)} onRemove={() => set('photoUrl', '')} onError={setError} />
           <Input label="Date of Birth" type="date" value={form.dateOfBirth} onChange={v => set('dateOfBirth', v)} />
           <Select label="Membership Category" value={form.membershipCategory} onChange={v => set('membershipCategory', v)} options={['First Timer', 'Visitor', 'Returning Member', 'Full Member', 'Worker', 'Minister']} />
           <Select label="Membership Status" value={form.membershipStatus} onChange={v => set('membershipStatus', v)} options={['Active', 'Inactive', 'Archived']} />
@@ -573,6 +575,7 @@ function MemberEditModal({ api, member, onClose, onSaved }) {
           <Input label="Department" value={form.department} onChange={v => set('department', v)} />
           <Input label="Street Address" value={form.streetAddress} onChange={v => set('streetAddress', v)} />
         </FormSection>
+        {error && <StatusMessage type="error" message={error} />}
         <button className="primary-button mt-5"><CheckSquare size={18} /> Save Member</button>
       </form>
     </div>
@@ -632,7 +635,7 @@ function RegisterMember({ api }) {
         <Input label="Alternative Phone" value={form.altPhone} onChange={v => set('altPhone', v)} />
         <Input label="WhatsApp Number" value={form.whatsapp} onChange={v => set('whatsapp', v)} />
         <Input label="Email Address" type="email" value={form.email} onChange={v => set('email', v)} />
-        <Input label="Passport Photograph URL" value={form.photoUrl} onChange={v => set('photoUrl', v)} />
+        <ImageUpload label="Passport Photograph" value={form.photoUrl} onChange={v => set('photoUrl', v)} onRemove={() => set('photoUrl', '')} onError={setError} />
       </FormSection>
       <FormSection title="Membership & Church Information">
         <Select label="Membership Category" value={form.membershipCategory} onChange={v => set('membershipCategory', v)} options={['First Timer', 'Visitor', 'Returning Member', 'Full Member', 'Occasional Attendee', 'Worker', 'Minister']} />
@@ -1137,7 +1140,7 @@ function AdminUsers({ api }) {
           <Input label="Full Name" value={newUser.fullName} onChange={fullName => setNewUser(prev => ({ ...prev, fullName }))} required />
           <Input label="Email" type="email" value={newUser.email} onChange={email => setNewUser(prev => ({ ...prev, email }))} required />
           <Input label="Temporary Password" type="password" value={newUser.password} onChange={password => setNewUser(prev => ({ ...prev, password }))} required />
-          <Input label="Profile Image URL" value={newUser.profileImageUrl} onChange={profileImageUrl => setNewUser(prev => ({ ...prev, profileImageUrl }))} />
+          <ImageUpload label="Profile Image" value={newUser.profileImageUrl} onChange={profileImageUrl => setNewUser(prev => ({ ...prev, profileImageUrl }))} onRemove={() => setNewUser(prev => ({ ...prev, profileImageUrl: '' }))} onError={setMessage} />
           <Select label="Role" value={newUser.roleId} onChange={roleId => setNewUser(prev => ({ ...prev, roleId }))} options={roles.filter(role => role.name !== 'Super Admin').map(role => `${role.id}|${role.name}`)} parseValue />
           <button className="primary-button self-end"><UserPlus size={18} /> Create User</button>
         </form>
@@ -1280,7 +1283,7 @@ function SettingsView({ api, initialSettings, onSettingsChange }) {
 
         <FormSection title="Identity">
           <Input label="Church Name" value={settings.churchName} onChange={v => set('churchName', v)} required />
-          <Input label="Logo URL" value={settings.logoUrl || ''} onChange={v => set('logoUrl', v)} />
+          <ImageUpload label="Logo Image" value={settings.logoUrl || ''} onChange={v => set('logoUrl', v)} onRemove={() => set('logoUrl', '')} onError={setError} />
           <Input label="Brand Color" type="color" value={settings.brandColor || DEFAULT_BRAND_COLOR} onChange={v => set('brandColor', v)} />
         </FormSection>
 
@@ -1301,6 +1304,44 @@ function SettingsView({ api, initialSettings, onSettingsChange }) {
       </form>
 
       <ChurchProfilePreview settings={settings} />
+    </div>
+  );
+}
+
+function ImageUpload({ label, value, onChange, onRemove, onError }) {
+  const handleFile = file => {
+    onError?.('');
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      onError?.('Please upload an image file.');
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      onError?.('Please upload an image smaller than 3 MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => onChange(reader.result || '');
+    reader.onerror = () => onError?.('Could not read that image. Please try another file.');
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div>
+      <span className="field-label">{label}</span>
+      <div className="flex min-h-12 flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950">
+        <label className="secondary-button min-h-10 cursor-pointer px-3">
+          <Upload size={17} />
+          Upload
+          <input className="sr-only" type="file" accept="image/*" onChange={e => handleFile(e.target.files?.[0])} />
+        </label>
+        {value && (
+          <>
+            <img className="size-10 rounded-lg object-cover" src={value} alt="" />
+            <button className="tiny-button danger" type="button" onClick={onRemove} aria-label="Remove image"><Trash2 size={15} /></button>
+          </>
+        )}
+      </div>
     </div>
   );
 }

@@ -43,6 +43,11 @@ router.post('/auth/register-church', wrap(async (req, res) => {
   }
 }));
 
+router.get('/auth/branding', wrap(async (_req, res) => {
+  const rows = await query('SELECT church_name, logo_url, brand_color FROM church_settings WHERE id = $1', ['main']);
+  res.json(rows[0] || {});
+}));
+
 router.use(requireAuth);
 router.use('/admin', adminRouter);
 

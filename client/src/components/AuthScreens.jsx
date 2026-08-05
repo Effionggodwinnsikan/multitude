@@ -1,8 +1,9 @@
-import { AlertTriangle, Building2, CheckSquare, Eye, EyeOff, Settings, ShieldCheck } from 'lucide-react';
-import React, { useState } from 'react';
-import { loginWithPassword, registerChurchAccount } from '../services/api';
+import { AlertTriangle, Building2, CheckSquare, Eye, EyeOff, Settings, ShieldCheck, Trash2, Upload } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { getPublicBranding, loginWithPassword, registerChurchAccount } from '../services/api';
 
 const DEFAULT_BRAND_COLOR = '#2563eb';
+const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 
 function hexToRgb(hex) {
   const normalized = /^#[0-9a-f]{6}$/i.test(hex || '') ? hex.slice(1) : DEFAULT_BRAND_COLOR.slice(1);
@@ -15,8 +16,9 @@ function hexToRgb(hex) {
 
 export function Login({ apiUrl, apiWarning, onLogin }) {
   const [mode, setMode] = useState('login');
-  const [email, setEmail] = useState('admin@gracecity.test');
+  const [identifier, setIdentifier] = useState('admin@gracecity.test');
   const [password, setPassword] = useState('password123');
+  const [branding, setBranding] = useState(null);
   const [churchForm, setChurchForm] = useState({
     churchName: '',
     logoUrl: '',
@@ -32,12 +34,19 @@ export function Login({ apiUrl, apiWarning, onLogin }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const isSignup = mode === 'signup';
-  const activeBrandColor = isSignup ? churchForm.brandColor : DEFAULT_BRAND_COLOR;
+  const activeBrandColor = isSignup ? churchForm.brandColor : (branding?.brand_color || branding?.brandColor || DEFAULT_BRAND_COLOR);
   const brandRgb = hexToRgb(activeBrandColor);
   const brandStyle = {
     '--brand-color': activeBrandColor,
     '--brand-rgb': `${brandRgb.r} ${brandRgb.g} ${brandRgb.b}`
   };
+  const churchName = isSignup ? 'Create Church Workspace' : (branding?.church_name || branding?.churchName || 'Church Member Care');
+  const logoUrl = !isSignup ? (branding?.logo_url || branding?.logoUrl || '') : '';
+
+  useEffect(() => {
+    if (!apiUrl) return;
+    getPublicBranding(apiUrl).then(setBranding).catch(() => {});
+  }, [apiUrl]);
 
   async function submit(event) {
     event.preventDefault();
@@ -50,7 +59,7 @@ export function Login({ apiUrl, apiWarning, onLogin }) {
     try {
       const data = isSignup
         ? await registerChurchAccount(apiUrl, churchForm)
-        : await loginWithPassword(apiUrl, { email, password });
+        : await loginWithPassword(apiUrl, { identifier, password });
       onLogin(data.token, data.user);
     } catch (err) {
       setError(err.message);
@@ -67,9 +76,11 @@ export function Login({ apiUrl, apiWarning, onLogin }) {
     <div className="grid min-h-screen place-items-center bg-slate-100 p-4 dark:bg-slate-950" style={brandStyle}>
       <form onSubmit={submit} className="w-full max-w-3xl rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="mb-6 flex items-center gap-3">
-          <div className="grid size-12 place-items-center rounded-lg text-white" style={{ backgroundColor: 'rgb(var(--brand-rgb))' }}>{isSignup ? <Building2 /> : <ShieldCheck />}</div>
+          <div className="grid size-12 place-items-center overflow-hidden rounded-lg text-white" style={{ backgroundColor: 'rgb(var(--brand-rgb))' }}>
+            {logoUrl ? <img className="h-full w-full object-cover" src={logoUrl} alt="" /> : (isSignup ? <Building2 /> : <ShieldCheck />)}
+          </div>
           <div>
-            <h1 className="text-2xl font-bold">{isSignup ? 'Create Church Workspace' : 'Church Member Care'}</h1>
+            <h1 className="text-2xl font-bold">{churchName}</h1>
             <p className="text-sm text-slate-500">{isSignup ? 'Set up the church profile and first admin account.' : 'Secure staff login'}</p>
           </div>
         </div>
@@ -83,7 +94,7 @@ export function Login({ apiUrl, apiWarning, onLogin }) {
         {isSignup ? (
           <div className="grid gap-4 md:grid-cols-2">
             <AuthInput label="Church Name" value={churchForm.churchName} onChange={value => setChurchField('churchName', value)} required />
-            <AuthInput label="Logo URL" value={churchForm.logoUrl} onChange={value => setChurchField('logoUrl', value)} />
+            <AuthImageUpload label="Logo Image" value={churchForm.logoUrl} onChange={value => setChurchField('logoUrl', value)} onRemove={() => setChurchField('logoUrl', '')} onError={setError} />
             <AuthInput label="Address" value={churchForm.address} onChange={value => setChurchField('address', value)} required />
             <AuthInput label="Church Email" type="email" value={churchForm.email} onChange={value => setChurchField('email', value)} />
             <AuthInput label="Phone" value={churchForm.phone} onChange={value => setChurchField('phone', value)} />
@@ -97,7 +108,7 @@ export function Login({ apiUrl, apiWarning, onLogin }) {
           </div>
         ) : (
           <>
-            <AuthInput label="Email" type="email" autoComplete="email" value={email} onChange={setEmail} />
+            <AuthInput label="Username or Email" autoComplete="username" value={identifier} onChange={setIdentifier} />
             <label>
               <span className="field-label">Password</span>
               <PasswordField value={password} autoComplete="current-password" showPassword={showPassword} setShowPassword={setShowPassword} onChange={setPassword} />
@@ -110,6 +121,44 @@ export function Login({ apiUrl, apiWarning, onLogin }) {
           {loading ? (isSignup ? 'Creating account...' : 'Signing in...') : (isSignup ? 'Create Church Account' : 'Sign in')}
         </button>
       </form>
+    </div>
+  );
+}
+
+function AuthImageUpload({ label, value, onChange, onRemove, onError }) {
+  const handleFile = file => {
+    onError?.('');
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      onError?.('Please upload an image file.');
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      onError?.('Please upload an image smaller than 3 MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => onChange(reader.result || '');
+    reader.onerror = () => onError?.('Could not read that image. Please try another file.');
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div>
+      <span className="field-label">{label}</span>
+      <div className="flex min-h-12 flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950">
+        <label className="secondary-button min-h-10 cursor-pointer px-3">
+          <Upload size={17} />
+          Upload
+          <input className="sr-only" type="file" accept="image/*" onChange={event => handleFile(event.target.files?.[0])} />
+        </label>
+        {value && (
+          <>
+            <img className="size-10 rounded-lg object-cover" src={value} alt="" />
+            <button className="tiny-button danger" type="button" onClick={onRemove} aria-label="Remove image"><Trash2 size={15} /></button>
+          </>
+        )}
+      </div>
     </div>
   );
 }

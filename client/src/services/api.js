@@ -40,10 +40,16 @@ export async function loginWithPassword(baseUrl, credentials) {
 
   if (!response.ok) {
     const detail = await responseMessage(response);
-    const message = response.status === 401 ? 'Invalid email or password.' : detail || 'Could not sign in. Check that the API is running.';
+    const message = response.status === 401 ? 'Invalid username or password.' : detail || 'Could not sign in. Check that the API is running.';
     throw new Error(message);
   }
 
+  return response.json();
+}
+
+export async function getPublicBranding(baseUrl) {
+  const response = await fetch(`${baseUrl}/auth/branding`);
+  if (!response.ok) return {};
   return response.json();
 }
 

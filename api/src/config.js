@@ -55,7 +55,7 @@ export function postgresSsl() {
 }
 
 export function corsOrigin(origin, callback) {
-  if (!origin || allowedOrigins.includes(origin)) {
+  if (!origin || allowedOrigins.includes(origin) || isLocalBrowserOrigin(origin)) {
     callback(null, true);
     return;
   }
@@ -66,6 +66,17 @@ export function corsOrigin(origin, callback) {
   }
 
   callback(new Error(`Origin ${origin} is not allowed by CORS`), false);
+}
+
+function isLocalBrowserOrigin(origin) {
+  if (isCloudRuntime()) return false;
+
+  try {
+    const { hostname, protocol } = new URL(origin);
+    return ['http:', 'https:'].includes(protocol) && isLocalDatabaseHost(hostname);
+  } catch {
+    return false;
+  }
 }
 
 function splitEnv(value) {
